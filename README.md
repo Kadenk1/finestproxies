@@ -1,13 +1,14 @@
-# ProxyGrid
+# Finest Proxies
 
 Premium proxy infrastructure platform — marketing site, customer dashboard,
 admin panel, and gateway control plane for a residential/ISP/mobile proxy
 business.
 
-> **Brand name placeholder.** "ProxyGrid" / `proxygrid.com` is a placeholder.
-> Rename by editing `src/lib/config/brand.ts` defaults or setting the
-> `NEXT_PUBLIC_BRAND_*` env vars — nothing else in the codebase hardcodes the
-> brand name.
+> **Rebranding.** "Finest Proxies" / `finestproxies.com` is set in
+> `src/lib/config/brand.ts` (defaults) and can be overridden per-environment
+> via the `NEXT_PUBLIC_BRAND_*` env vars — nothing else in the codebase
+> hardcodes the brand name, so changing it there is enough to rebrand the
+> whole app.
 
 ## Build status
 
@@ -173,8 +174,8 @@ This creates two dev accounts (password `DevPassword123` for both):
 
 | Role     | Email                     |
 | -------- | -------------------------- |
-| Admin    | `admin@proxygrid.com`    |
-| Customer | `customer@proxygrid.com` |
+| Admin    | `admin@finestproxies.com`    |
+| Customer | `customer@finestproxies.com` |
 
 It also seeds the three products (Residential, ISP, Mobile), a mock upstream
 provider, three gateways, sample orders/usage, and a `WELCOME10` coupon.
@@ -249,13 +250,13 @@ secret) are a TODO called out in
 
 ## Customer dashboard walkthrough
 
-Log in as `customer@proxygrid.com` and try, in order:
+Log in as `customer@finestproxies.com` and try, in order:
 
 1. **Orders** — buy some Residential GB or ISP IPs (mock payment settles
    instantly).
 2. **Proxy Generator** — pick the product you just bought, a country,
    protocol, and session type, and generate credentials. The host/port
-   shown are always OUR gateway (`resi.proxygrid.com:8000`, etc.), never an
+   shown are always OUR gateway (`resi.finestproxies.com:8000`, etc.), never an
    upstream address.
 3. **Proxies → (product)** — see credentials you've generated; use
    **Simulate usage** to inject traffic, or **Revoke** to disable one.
@@ -265,7 +266,7 @@ Log in as `customer@proxygrid.com` and try, in order:
 
 ## Admin panel walkthrough
 
-Log in as `admin@proxygrid.com` and visit `/admin`:
+Log in as `admin@finestproxies.com` and visit `/admin`:
 
 1. **Products** — edit an existing product's pricing or create a new one;
    changes are live on `/pricing` immediately.

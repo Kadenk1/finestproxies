@@ -90,7 +90,7 @@ export function GatewayFormDialog({ gateway }: GatewayFormDialogProps) {
           </div>
           <div className="space-y-1.5">
             <Label>Hostname</Label>
-            <Input {...register("hostname")} placeholder="resi.proxygrid.com" />
+            <Input {...register("hostname")} placeholder="resi.finestproxies.com" />
             {errors.hostname && (
               <p className="text-xs text-destructive">{errors.hostname.message}</p>
             )}

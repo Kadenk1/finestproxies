@@ -4,13 +4,13 @@
  * marketing site, dashboard, emails, docs, and seed data all read from here.
  */
 export const brand = {
-  name: process.env.NEXT_PUBLIC_BRAND_NAME ?? "ProxyGrid",
-  shortName: process.env.NEXT_PUBLIC_BRAND_SHORT_NAME ?? "ProxyGrid",
-  domain: process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "proxygrid.com",
+  name: process.env.NEXT_PUBLIC_BRAND_NAME ?? "Finest Proxies",
+  shortName: process.env.NEXT_PUBLIC_BRAND_SHORT_NAME ?? "Finest Proxies",
+  domain: process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "finestproxies.com",
   supportEmail:
-    process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@proxygrid.com",
-  legalEmail: process.env.NEXT_PUBLIC_LEGAL_EMAIL ?? "legal@proxygrid.com",
-  twitter: process.env.NEXT_PUBLIC_BRAND_TWITTER ?? "@proxygrid",
+    process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@finestproxies.com",
+  legalEmail: process.env.NEXT_PUBLIC_LEGAL_EMAIL ?? "legal@finestproxies.com",
+  twitter: process.env.NEXT_PUBLIC_BRAND_TWITTER ?? "@finestproxies",
   tagline: "Premium Proxy Infrastructure Built for Performance",
 } as const;
 

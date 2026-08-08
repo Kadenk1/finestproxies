@@ -1,30 +1,30 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: proxygrid-postgres
+    container_name: finestproxies-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: proxygrid
-      POSTGRES_PASSWORD: proxygrid_dev_password
-      POSTGRES_DB: proxygrid
+      POSTGRES_USER: finestproxies
+      POSTGRES_PASSWORD: finestproxies_dev_password
+      POSTGRES_DB: finestproxies
     ports:
       - "5432:5432"
     volumes:
-      - proxygrid_postgres_data:/var/lib/postgresql/data
+      - finestproxies_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U proxygrid -d proxygrid"]
+      test: ["CMD-SHELL", "pg_isready -U finestproxies -d finestproxies"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
-    container_name: proxygrid-redis
+    container_name: finestproxies-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
-      - proxygrid_redis_data:/data
+      - finestproxies_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,5 +32,5 @@ services:
       retries: 10
 
 volumes:
-  proxygrid_postgres_data:
-  proxygrid_redis_data:
+  finestproxies_postgres_data:
+  finestproxies_redis_data:

@@ -13,10 +13,10 @@ const DEV_PASSWORD = "DevPassword123";
 async function seedUsers() {
   const adminPasswordHash = await hashPassword(DEV_PASSWORD);
   const admin = await prisma.user.upsert({
-    where: { email: "admin@proxygrid.com" },
+    where: { email: "admin@finestproxies.com" },
     update: {},
     create: {
-      email: "admin@proxygrid.com",
+      email: "admin@finestproxies.com",
       passwordHash: adminPasswordHash,
       name: "Ada Admin",
       role: "ADMIN",
@@ -27,10 +27,10 @@ async function seedUsers() {
 
   const customerPasswordHash = await hashPassword(DEV_PASSWORD);
   const customer = await prisma.user.upsert({
-    where: { email: "customer@proxygrid.com" },
+    where: { email: "customer@finestproxies.com" },
     update: {},
     create: {
-      email: "customer@proxygrid.com",
+      email: "customer@finestproxies.com",
       passwordHash: customerPasswordHash,
       name: "Casey Customer",
       companyName: "Acme Data Co.",
@@ -546,8 +546,8 @@ async function main() {
     mobile: mobileGw.id,
   });
   console.log("Seed complete.");
-  console.log("  Admin login:    admin@proxygrid.com / DevPassword123");
-  console.log("  Customer login: customer@proxygrid.com / DevPassword123");
+  console.log("  Admin login:    admin@finestproxies.com / DevPassword123");
+  console.log("  Customer login: customer@finestproxies.com / DevPassword123");
 }
 
 main()

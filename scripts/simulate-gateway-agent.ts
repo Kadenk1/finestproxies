@@ -16,9 +16,9 @@ if (!SECRET) {
 }
 
 const gateways = [
-  { hostname: `resi.${process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "proxygrid.com"}` },
-  { hostname: `isp.${process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "proxygrid.com"}` },
-  { hostname: `mobile.${process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "proxygrid.com"}` },
+  { hostname: `resi.${process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "finestproxies.com"}` },
+  { hostname: `isp.${process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "finestproxies.com"}` },
+  { hostname: `mobile.${process.env.NEXT_PUBLIC_BRAND_DOMAIN ?? "finestproxies.com"}` },
 ];
 
 function randomBetween(min: number, max: number) {
