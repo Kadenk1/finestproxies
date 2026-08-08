@@ -30,12 +30,14 @@ export default async function AdminOverviewPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Customers"
-          value={data.customerCount.toString()}
-          hint={`${data.activeCustomerCount} active`}
-          icon={Users}
-        />
+        <Link href="/admin/customers" className="block rounded-2xl transition-shadow hover:shadow-md">
+          <StatCard
+            label="Customers"
+            value={data.customerCount.toString()}
+            hint={`${data.activeCustomerCount} active — manage →`}
+            icon={Users}
+          />
+        </Link>
         <StatCard
           label="Total revenue"
           value={`$${data.totalRevenue.toFixed(2)}`}
@@ -47,11 +49,14 @@ export default async function AdminOverviewPage() {
           value={`${data.totalUsageGb.toFixed(1)} GB`}
           icon={Activity}
         />
-        <StatCard
-          label="Open support tickets"
-          value={data.openTickets.toString()}
-          icon={LifeBuoy}
-        />
+        <Link href="/admin/support" className="block rounded-2xl transition-shadow hover:shadow-md">
+          <StatCard
+            label="Open support tickets"
+            value={data.openTickets.toString()}
+            hint="manage →"
+            icon={LifeBuoy}
+          />
+        </Link>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -117,7 +122,12 @@ export default async function AdminOverviewPage() {
             {data.recentOrders.map((order) => (
               <div key={order.id} className="flex items-center justify-between text-sm">
                 <div>
-                  <div className="font-medium text-navy-900">{order.user.email}</div>
+                  <Link
+                    href={`/admin/customers/${order.user.id}`}
+                    className="font-medium text-brand-700 hover:underline"
+                  >
+                    {order.user.email}
+                  </Link>
                   <div className="text-xs text-muted-foreground">
                     {order.items.map((i) => i.product.name).join(", ")}
                   </div>
@@ -137,14 +147,24 @@ export default async function AdminOverviewPage() {
           <CardTitle>Recent signups</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
+          {data.recentSignups.length === 0 && (
+            <p className="text-sm text-muted-foreground">No customers yet.</p>
+          )}
           {data.recentSignups.map((user) => (
-            <div key={user.id} className="flex items-center justify-between text-sm">
-              <span className="text-navy-900">{user.email}</span>
+            <Link
+              key={user.id}
+              href={`/admin/customers/${user.id}`}
+              className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-secondary"
+            >
+              <span className="text-brand-700">{user.email}</span>
               <span className="text-xs text-muted-foreground">
                 {user.createdAt.toLocaleDateString()}
               </span>
-            </div>
+            </Link>
           ))}
+          <Link href="/admin/customers" className="mt-2 block text-xs text-brand-700 hover:underline">
+            View all customers →
+          </Link>
         </CardContent>
       </Card>
     </div>
