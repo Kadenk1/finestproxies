@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, Network, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { Logo } from "@/components/shared/logo";
 import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
 
@@ -27,9 +28,7 @@ export function SiteHeader() {
     <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/85 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Network className="h-4.5 w-4.5" />
-          </span>
+          <Logo className="h-8 w-8" />
           <span className="text-[15px] tracking-tight text-navy-900">
             {brand.name}
           </span>

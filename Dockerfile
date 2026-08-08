@@ -16,7 +16,12 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci
+# --ignore-scripts: this stage only needs node_modules for layer caching.
+# `npm ci`'s postinstall runs `prisma generate`, which needs prisma/schema.prisma
+# — not copied here (only package.json/lock are, so this layer only
+# invalidates on dependency changes). The builder stage runs `prisma
+# generate` explicitly once the full source is present.
+RUN npm ci --ignore-scripts
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules

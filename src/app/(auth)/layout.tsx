@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Network } from "lucide-react";
+import { Logo } from "@/components/shared/logo";
 import { brand } from "@/lib/config/brand";
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
@@ -8,9 +8,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-full flex-col bg-hero-gradient">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-16">
         <Link href="/" className="mb-8 flex items-center gap-2 font-semibold">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Network className="h-5 w-5" />
-          </span>
+          <Logo className="h-9 w-9" />
           <span className="text-base tracking-tight text-navy-900">
             {brand.name}
           </span>

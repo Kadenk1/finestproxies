@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Network } from "lucide-react";
+import { Logo } from "@/components/shared/logo";
 import { brand } from "@/lib/config/brand";
 
 const footerLinks = {
@@ -33,9 +33,7 @@ export function SiteFooter() {
         <div className="grid grid-cols-2 gap-10 md:grid-cols-6">
           <div className="col-span-2">
             <Link href="/" className="flex items-center gap-2 font-semibold">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Network className="h-4.5 w-4.5" />
-              </span>
+              <Logo className="h-8 w-8" />
               <span className="text-[15px] tracking-tight text-navy-900">
                 {brand.name}
               </span>

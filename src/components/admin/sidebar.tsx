@@ -17,11 +17,11 @@ import {
   LifeBuoy,
   Settings,
   ScrollText,
-  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { Logo } from "@/components/shared/logo";
 
 export const adminNavLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -47,9 +47,7 @@ export function AdminSidebar() {
     <aside className="hidden w-64 shrink-0 flex-col border-r border-white/10 bg-navy-900 lg:flex">
       <div className="flex h-16 items-center gap-2 border-b border-white/10 px-5">
         <Link href="/admin" className="flex items-center gap-2 font-semibold text-white">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-white">
-            <Network className="h-4.5 w-4.5" />
-          </span>
+          <Logo className="h-8 w-8" />
           <span className="text-[15px] tracking-tight">{brand.name} Admin</span>
         </Link>
       </div>

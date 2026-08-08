@@ -17,11 +17,11 @@ import {
   Users,
   Router,
   Smartphone,
-  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { Logo } from "@/components/shared/logo";
 
 const proxyLinks = [
   { href: "/dashboard/proxies/residential", label: "Residential", icon: Users },
@@ -141,9 +141,7 @@ export function DashboardSidebar() {
     <aside className="hidden w-64 shrink-0 flex-col border-r border-border/70 bg-white lg:flex">
       <div className="flex h-16 items-center gap-2 border-b border-border/70 px-5">
         <Link href="/" className="flex items-center gap-2 font-semibold">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Network className="h-4.5 w-4.5" />
-          </span>
+          <Logo className="h-8 w-8" />
           <span className="text-[15px] tracking-tight text-navy-900">{brand.name}</span>
         </Link>
       </div>

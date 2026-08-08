@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, Network } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { Logo } from "@/components/shared/logo";
 import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
 import { adminNavLinks } from "@/components/admin/sidebar";
@@ -24,9 +25,7 @@ export function AdminMobileNav() {
       <SheetContent side="left" className="w-72 bg-navy-900 p-0 text-white">
         <SheetTitle className="sr-only">Admin navigation</SheetTitle>
         <div className="flex h-16 items-center gap-2 border-b border-white/10 px-5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-white">
-            <Network className="h-4.5 w-4.5" />
-          </span>
+          <Logo className="h-8 w-8" />
           <span className="text-[15px] tracking-tight">{brand.name} Admin</span>
         </div>
         <nav className="space-y-0.5 overflow-y-auto px-3 py-4">
