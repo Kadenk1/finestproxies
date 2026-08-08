@@ -1,12 +1,152 @@
-export default function AdminOverviewPage() {
+import Link from "next/link";
+import { Users, DollarSign, Activity, LifeBuoy } from "lucide-react";
+import { getAdminOverview, getRevenueByProduct } from "@/lib/data/admin";
+import { StatCard } from "@/components/dashboard/stat-card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ProductUsageChart } from "@/components/dashboard/charts/product-usage-chart";
+
+const statusVariant: Record<string, "default" | "secondary" | "destructive"> = {
+  HEALTHY: "default",
+  DEGRADED: "secondary",
+  OFFLINE: "destructive",
+  MAINTENANCE: "secondary",
+  PAID: "default",
+  PENDING: "secondary",
+  FAILED: "destructive",
+};
+
+export default async function AdminOverviewPage() {
+  const data = await getAdminOverview();
+  const revenueByProduct = await getRevenueByProduct();
+
   return (
-    <div className="mx-auto max-w-3xl">
-      <h1 className="text-2xl font-semibold text-navy-900">Admin overview</h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        The full admin panel (customers, orders, products, pricing,
-        providers, gateways, routes, usage, payments, coupons, support,
-        settings, audit logs) is built out starting in Phase 3.
-      </p>
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-semibold text-navy-900">Admin overview</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Platform-wide KPIs across customers, revenue, and infrastructure.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Customers"
+          value={data.customerCount.toString()}
+          hint={`${data.activeCustomerCount} active`}
+          icon={Users}
+        />
+        <StatCard
+          label="Total revenue"
+          value={`$${data.totalRevenue.toFixed(2)}`}
+          hint="Succeeded payments"
+          icon={DollarSign}
+        />
+        <StatCard
+          label="Total bandwidth served"
+          value={`${data.totalUsageGb.toFixed(1)} GB`}
+          icon={Activity}
+        />
+        <StatCard
+          label="Open support tickets"
+          value={data.openTickets.toString()}
+          icon={LifeBuoy}
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Gateway health</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.gatewayStatusCounts.map((row) => (
+              <div key={row.status} className="flex items-center justify-between text-sm">
+                <Badge variant={statusVariant[row.status] ?? "secondary"}>{row.status}</Badge>
+                <span className="font-medium text-navy-900">{row._count._all}</span>
+              </div>
+            ))}
+            <Link href="/admin/gateways" className="mt-2 block text-xs text-brand-700 hover:underline">
+              Manage gateways →
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Provider health</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {data.providerStatusCounts.map((row) => (
+              <div key={row.healthStatus} className="flex items-center justify-between text-sm">
+                <Badge variant={statusVariant[row.healthStatus] ?? "secondary"}>
+                  {row.healthStatus}
+                </Badge>
+                <span className="font-medium text-navy-900">{row._count._all}</span>
+              </div>
+            ))}
+            <Link href="/admin/providers" className="mt-2 block text-xs text-brand-700 hover:underline">
+              Manage providers →
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue by product</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {revenueByProduct.length > 0 ? (
+              <ProductUsageChart data={revenueByProduct.map((r) => ({ name: r.name, gb: r.revenue }))} />
+            ) : (
+              <p className="py-10 text-center text-sm text-muted-foreground">No revenue yet.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent orders</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {data.recentOrders.length === 0 && (
+              <p className="text-sm text-muted-foreground">No orders yet.</p>
+            )}
+            {data.recentOrders.map((order) => (
+              <div key={order.id} className="flex items-center justify-between text-sm">
+                <div>
+                  <div className="font-medium text-navy-900">{order.user.email}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {order.items.map((i) => i.product.name).join(", ")}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-navy-900">${Number(order.total).toFixed(2)}</span>
+                  <Badge variant={statusVariant[order.status] ?? "secondary"}>{order.status}</Badge>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent signups</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {data.recentSignups.map((user) => (
+            <div key={user.id} className="flex items-center justify-between text-sm">
+              <span className="text-navy-900">{user.email}</span>
+              <span className="text-xs text-muted-foreground">
+                {user.createdAt.toLocaleDateString()}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -11,7 +11,7 @@ business.
 
 ## Build status
 
-This project is being built in phases. **Phases 1 and 2 are complete**:
+This project is being built in phases. **Phases 1 through 3 are complete**:
 
 **Phase 1** — Project structure, design system, and Prisma schema.
 Email/password authentication with sessions, roles, rate limiting, email
@@ -29,12 +29,24 @@ the usage-accounting pipeline. See `src/services/gateway`,
 `src/services/usage`, and `src/services/billing` for the orchestration
 logic behind those flows.
 
-Not yet built (see the project's build order): the admin panel, the real
-routing engine (Phase 2's route selection is "first enabled route" —
-health/latency/cost-aware scoring is Phase 4), the gateway control API,
-real billing integration (Stripe), and profit analytics. A minimal
-placeholder page exists at `/admin` solely to prove the auth + role-gating
-flow works end to end.
+**Phase 3** — Full admin panel at `/admin` (role-gated, separate from the
+customer dashboard): Dashboard (KPIs), Customers (suspend/ban, internal
+notes), Orders, Products (create/edit without touching code — pricing,
+locations, active flag), Pricing (recurring plans), Providers
+(create/edit, secrets encrypted at rest and never re-displayed after
+saving, per-product cost config, locations, credential rotation history),
+Gateways (create/edit, maintenance mode), Routes (assign
+gateway+provider+product with priority/weight), Usage, Payments, Coupons,
+Support (reply as staff, change status), System Settings (generic
+key/value config), and Audit Logs. Every sensitive mutation goes through
+`requireAdminSession()` (role check independent of the page-level
+middleware) and is recorded via `logAdminAction()` in `src/lib/audit.ts`.
+
+Not yet built (see the project's build order): the real routing engine
+(route selection today is "first enabled route, ordered by priority" —
+health/latency/cost-aware scoring is Phase 4), the gateway control API
+(heartbeat ingestion for the health numbers shown in Gateways), real
+billing integration (Stripe), and profit analytics.
 
 ## Tech stack
 
@@ -208,6 +220,24 @@ Log in as `customer@proxygrid.com` and try, in order:
 4. **Usage / Overview** — bandwidth, requests, and balances update
    immediately from the usage you simulated.
 5. **Support** — open a ticket and reply to it.
+
+## Admin panel walkthrough
+
+Log in as `admin@proxygrid.com` and visit `/admin`:
+
+1. **Products** — edit an existing product's pricing or create a new one;
+   changes are live on `/pricing` immediately.
+2. **Providers** — open the seeded "Mock Upstream Provider," review its
+   cost config and locations, and try rotating its API key (the old
+   credential is marked "rotated out," not deleted — audit trail intact).
+3. **Gateways** — put a gateway into maintenance and confirm its status
+   badge updates.
+4. **Routes** — see which gateway/provider serves each product; this is
+   what `gateway-service` reads when a customer generates a credential.
+5. **Customers** — open a customer, suspend them, and confirm (from the
+   customer dashboard, or by checking `CustomerProxyCredential` rows) that
+   their active credentials get disabled too.
+6. **Audit Logs** — confirm every action above left a row.
 
 ## Scripts
 
