@@ -364,6 +364,20 @@ app container **starts**, after Postgres is confirmed healthy. See the
 are what actually ships. Edit that file directly if you need to rebrand
 under this deployment path.
 
+### Pre-launch site gate
+
+Deploying somewhere real before you're ready for visitors? Set
+`SITE_PASSWORD` (Vercel env var, or in `.env.production` for the VPS
+path) and every page redirects to `/coming-soon` until the visitor enters
+that password — stored afterward in an HttpOnly cookie for 30 days. It's a
+single shared password, not a per-user account, meant only to keep the
+site out of casual view (and search engines) pre-launch, not as real
+access control.
+
+**To launch:** remove `SITE_PASSWORD` and redeploy. No code changes.
+Leave it unset locally too — the gate is opt-in and off by default (see
+`src/proxy.ts`, `src/app/coming-soon`, `src/app/api/site-access`).
+
 ## 9. Connecting our gateway infrastructure
 
 A real gateway becomes visible to the platform in two steps:
