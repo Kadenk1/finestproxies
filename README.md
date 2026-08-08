@@ -11,7 +11,7 @@ business.
 
 ## Build status
 
-This project is being built in phases. **Phases 1 through 3 are complete**:
+This project is being built in phases. **Phases 1 through 4 are complete**:
 
 **Phase 1** — Project structure, design system, and Prisma schema.
 Email/password authentication with sessions, roles, rate limiting, email
@@ -42,11 +42,37 @@ key/value config), and Audit Logs. Every sensitive mutation goes through
 `requireAdminSession()` (role check independent of the page-level
 middleware) and is recorded via `logAdminAction()` in `src/lib/audit.ts`.
 
-Not yet built (see the project's build order): the real routing engine
-(route selection today is "first enabled route, ordered by priority" —
-health/latency/cost-aware scoring is Phase 4), the gateway control API
-(heartbeat ingestion for the health numbers shown in Gateways), real
-billing integration (Stripe), and profit analytics.
+**Phase 4** — A real routing engine (`src/services/routing/routing-engine.ts`):
+`gateway-service` no longer just takes the first enabled route — it scores
+every candidate `GatewayRoute` by administrator-defined priority/weight,
+gateway and provider health, latency, historical success rate, upstream
+cost, and geographic fit, and picks the best one. Also, the Gateway
+Control API's ingestion side: `POST /api/gateway-control/heartbeat` and
+`POST /api/gateway-control/usage`, bearer-secret-authenticated endpoints a
+gateway agent calls to report health (updates `Gateway` + appends
+`GatewayHealth`) and bill real usage (same dedupe-safe `recordUsageEvent`
+the dev "simulate usage" button uses). `npm run gateway:heartbeat` sends
+one simulated heartbeat per seeded gateway so you can see the whole path
+without real infrastructure.
+
+Not yet built (see the project's build order): real billing integration
+(Stripe) and profit analytics (Phase 5), plus a broader security/testing
+pass (Phase 6).
+
+### A note on this environment's local database
+
+While building Phase 4, the sandboxed dev environment's local ephemeral
+Postgres (`prisma dev`, used because Docker wasn't available here)
+repeatedly died and had to be restarted — not something in the app code.
+I verified Phases 1–3 and the routing engine build/lint/type-check
+thoroughly, plus real runtime testing of auth, the customer dashboard,
+proxy generation/purchase/usage flows, and most admin CRUD (Products,
+Coupons, Providers, Gateways, including a BigInt-serialization bug I found
+and fixed) before the database instability made further live testing
+unreliable in-session. I did not get a final live run specifically against
+the new heartbeat/usage-ingestion endpoints — do that first with
+`npm run gateway:heartbeat` once you have a stable Postgres (e.g. via
+`docker compose up -d`, which is what your own machine will use).
 
 ## Tech stack
 
@@ -200,10 +226,26 @@ Postgres and Redis as managed services, migrations run via
 
 ## 9. Connecting our gateway infrastructure
 
-**Not yet implemented.** Phase 4 introduces the Gateway Control API and the
-heartbeat contract gateway agents use to report health. Until then, `Gateway`
-rows exist in the schema and are seeded with mock data for the dashboard to
-read.
+A real gateway becomes visible to the platform in two steps:
+
+1. **Register it**: add a `Gateway` row (admin panel → Gateways → New
+   gateway) with its hostname, IP, and region, and add `GatewayRoute` rows
+   (admin panel → Routes) connecting it to whichever provider(s) and
+   product(s) it should serve.
+2. **Point its agent at the Gateway Control API**: the agent process
+   running on the gateway should periodically `POST
+   /api/gateway-control/heartbeat` (health) and, per unit of customer
+   traffic, `POST /api/gateway-control/usage` (billing), both authenticated
+   with `Authorization: Bearer $GATEWAY_AGENT_SECRET`. See
+   `src/lib/validation/gateway-control.ts` for the exact payload shape and
+   `scripts/simulate-gateway-agent.ts` for a minimal working example.
+
+The routing engine (`src/services/routing/routing-engine.ts`) automatically
+starts considering a gateway for traffic as soon as its `GatewayRoute` rows
+are enabled and its heartbeat reports a non-`OFFLINE` status — no code
+changes needed. Per-gateway agent credentials (rather than one shared
+secret) are a TODO called out in
+`src/lib/auth/require-gateway-agent.ts`.
 
 ## Customer dashboard walkthrough
 

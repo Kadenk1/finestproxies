@@ -2,6 +2,7 @@ import { customAlphabet } from "nanoid";
 import { prisma } from "@/lib/db/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secrets";
 import { getProviderAdapter } from "@/services/providers/registry";
+import { selectRoute } from "@/services/routing/routing-engine";
 import { gatewayHosts, gatewayPorts } from "@/lib/config/brand";
 import type { ProxyProtocol, ProxySessionType } from "@/generated/prisma/enums";
 
@@ -93,17 +94,14 @@ export async function generateProxyCredential(
     throw new InsufficientBalanceError(input.productSlug);
   }
 
-  // Route selection: lowest priority number wins, then highest weight.
-  // This is intentionally simple — Phase 4's routing engine formalizes
-  // scoring by health, latency, success rate, and cost.
-  const route = await prisma.gatewayRoute.findFirst({
-    where: { productId: product.id, enabled: true },
-    orderBy: [{ priority: "asc" }, { weight: "desc" }],
-    include: { gateway: true, provider: true },
-  });
-  if (!route || route.gateway.status === "OFFLINE") {
+  const selected = await selectRoute(product.id, input.country);
+  if (!selected) {
     throw new NoAvailableRouteError(input.productSlug);
   }
+  const route = await prisma.gatewayRoute.findUniqueOrThrow({
+    where: { id: selected.routeId },
+    include: { gateway: true, provider: true },
+  });
 
   const adapter = getProviderAdapter(route.provider.slug);
   const upstream = await adapter.createProxyCredential({
