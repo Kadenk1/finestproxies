@@ -152,9 +152,23 @@ Fill in:
   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
   ```
 - `NEXT_PUBLIC_BRAND_*` — optional, override to rebrand
+- `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` — optional, enables "Continue
+  with Discord" on Login/Register. Create an app at
+  [discord.com/developers/applications](https://discord.com/developers/applications),
+  add redirect URL `{NEXTAUTH_URL}/api/auth/callback/discord` (e.g.
+  `http://localhost:3000/api/auth/callback/discord` locally), enable the
+  `identify` and `email` scopes, and copy the Client ID/Secret in. Leave
+  both unset and the button simply doesn't render — email/password still
+  works either way.
 
 See `.env.example` for the full list, including billing/email variables that
 are reserved for later phases.
+
+Discord accounts are matched to a `User` by email on first sign-in (linking
+an existing password account if one exists with the same email, or
+creating a new customer if not) — see the `signIn` callback in
+`src/auth.ts`. Discord-only accounts have no password until they use
+"Forgot password" to set one.
 
 ## 4. Running locally
 

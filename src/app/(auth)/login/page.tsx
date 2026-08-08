@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { LoginForm } from "@/components/auth/login-form";
+import { DiscordSignInButton } from "@/components/auth/discord-signin-button";
+import { isDiscordConfigured } from "@/lib/config/oauth";
 
 export const metadata: Metadata = { title: "Log in" };
 
@@ -12,7 +14,21 @@ export default function LoginPage() {
       <p className="mt-1.5 text-sm text-muted-foreground">
         Welcome back. Enter your credentials to continue.
       </p>
-      <div className="mt-6">
+
+      {isDiscordConfigured && (
+        <div className="mt-6">
+          <Suspense>
+            <DiscordSignInButton />
+          </Suspense>
+          <div className="my-5 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+        </div>
+      )}
+
+      <div className={isDiscordConfigured ? "" : "mt-6"}>
         <Suspense>
           <LoginForm />
         </Suspense>
