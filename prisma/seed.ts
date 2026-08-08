@@ -372,35 +372,41 @@ async function seedCustomerActivity(
     },
   });
 
-  const order = await prisma.order.create({
-    data: {
-      userId: customerId,
-      status: "PAID",
-      subtotal: 30,
-      discount: 0,
-      total: 30,
-      items: {
-        create: [
-          {
-            productId: productIds.residential,
-            quantity: 10,
-            unitPrice: 3,
-            totalPrice: 30,
-          },
-        ],
-      },
-      payments: {
-        create: [
-          {
-            provider: "MOCK",
-            idempotencyKey: `seed-order-${customerId}-1`,
-            amount: 30,
-            status: "SUCCEEDED",
-          },
-        ],
-      },
-    },
+  const seedOrderKey = `seed-order-${customerId}-1`;
+  const existingSeedPayment = await prisma.payment.findUnique({
+    where: { idempotencyKey: seedOrderKey },
   });
+  const order = existingSeedPayment
+    ? await prisma.order.findUniqueOrThrow({ where: { id: existingSeedPayment.orderId } })
+    : await prisma.order.create({
+        data: {
+          userId: customerId,
+          status: "PAID",
+          subtotal: 30,
+          discount: 0,
+          total: 30,
+          items: {
+            create: [
+              {
+                productId: productIds.residential,
+                quantity: 10,
+                unitPrice: 3,
+                totalPrice: 30,
+              },
+            ],
+          },
+          payments: {
+            create: [
+              {
+                provider: "MOCK",
+                idempotencyKey: seedOrderKey,
+                amount: 30,
+                status: "SUCCEEDED",
+              },
+            ],
+          },
+        },
+      });
 
   const credential = await prisma.customerProxyCredential.upsert({
     where: { username: "cg_demo_user" },
@@ -417,6 +423,44 @@ async function seedCustomerActivity(
       country: "US",
     },
   });
+
+  const mobileCredential = await prisma.customerProxyCredential.upsert({
+    where: { username: "cg_demo_mobile" },
+    update: {},
+    create: {
+      userId: customerId,
+      productId: productIds.mobile,
+      gatewayId: gatewayIds.mobile,
+      label: "Demo mobile credential",
+      username: "cg_demo_mobile",
+      passwordEnc: encryptSecret("demo-pass-do-not-use"),
+      protocol: "SOCKS5",
+      sessionType: "STICKY",
+      sessionDurationMins: 10,
+      country: "US",
+    },
+  });
+
+  // Sessions so "Simulate usage" has something to attribute traffic to.
+  for (const [credId, gatewayId] of [
+    [credential.id, gatewayIds.resi],
+    [mobileCredential.id, gatewayIds.mobile],
+  ] as const) {
+    const existingSession = await prisma.proxySession.findFirst({
+      where: { credentialId: credId },
+    });
+    if (!existingSession) {
+      await prisma.proxySession.create({
+        data: {
+          credentialId: credId,
+          gatewayId,
+          providerId,
+          upstreamSessionRef: `mock_seed_${credId}`,
+          exitCountry: "US",
+        },
+      });
+    }
+  }
 
   await prisma.usageRecord.upsert({
     where: { dedupeKey: `seed-usage-${customerId}-1` },
@@ -435,6 +479,55 @@ async function seedCustomerActivity(
       occurredAt: new Date(Date.now() - 1000 * 60 * 60 * 6),
     },
   });
+
+  // 14 days of history so overview charts have something to show out of the box.
+  for (let daysAgo = 13; daysAgo >= 1; daysAgo--) {
+    const occurredAt = new Date();
+    occurredAt.setDate(occurredAt.getDate() - daysAgo);
+    occurredAt.setHours(14, 0, 0, 0);
+
+    const resiDown = Math.round(200_000_000 + Math.random() * 900_000_000);
+    const resiUp = Math.round(resiDown * 0.07);
+    await prisma.usageRecord.upsert({
+      where: { dedupeKey: `seed-usage-${customerId}-resi-${daysAgo}` },
+      update: {},
+      create: {
+        userId: customerId,
+        productId: productIds.residential,
+        gatewayId: gatewayIds.resi,
+        providerId,
+        credentialId: credential.id,
+        dedupeKey: `seed-usage-${customerId}-resi-${daysAgo}`,
+        bytesUploaded: BigInt(resiUp),
+        bytesDownloaded: BigInt(resiDown),
+        totalBytes: BigInt(resiUp + resiDown),
+        requestCount: Math.round(500 + Math.random() * 3000),
+        occurredAt,
+      },
+    });
+
+    if (daysAgo % 2 === 0) {
+      const mobileDown = Math.round(100_000_000 + Math.random() * 400_000_000);
+      const mobileUp = Math.round(mobileDown * 0.09);
+      await prisma.usageRecord.upsert({
+        where: { dedupeKey: `seed-usage-${customerId}-mobile-${daysAgo}` },
+        update: {},
+        create: {
+          userId: customerId,
+          productId: productIds.mobile,
+          gatewayId: gatewayIds.mobile,
+          providerId,
+          credentialId: mobileCredential.id,
+          dedupeKey: `seed-usage-${customerId}-mobile-${daysAgo}`,
+          bytesUploaded: BigInt(mobileUp),
+          bytesDownloaded: BigInt(mobileDown),
+          totalBytes: BigInt(mobileUp + mobileDown),
+          requestCount: Math.round(100 + Math.random() * 900),
+          occurredAt,
+        },
+      });
+    }
+  }
 
   return order;
 }

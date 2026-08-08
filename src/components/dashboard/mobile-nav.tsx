@@ -1,0 +1,32 @@
+"use client";
+
+import { useState } from "react";
+import { Menu, Network } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { DashboardNavLinks } from "@/components/dashboard/sidebar";
+import { brand } from "@/lib/config/brand";
+
+export function DashboardMobileNav() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger
+        render={<Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" />}
+      >
+        <Menu className="h-5 w-5" />
+      </SheetTrigger>
+      <SheetContent side="left" className="w-72 p-0">
+        <SheetTitle className="sr-only">Dashboard navigation</SheetTitle>
+        <div className="flex h-16 items-center gap-2 border-b border-border/70 px-5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Network className="h-4.5 w-4.5" />
+          </span>
+          <span className="text-[15px] tracking-tight text-navy-900">{brand.name}</span>
+        </div>
+        <DashboardNavLinks onNavigate={() => setOpen(false)} />
+      </SheetContent>
+    </Sheet>
+  );
+}

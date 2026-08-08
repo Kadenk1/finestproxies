@@ -24,6 +24,7 @@ export function LinkButton({
       variant={variant}
       size={size}
       className={className}
+      nativeButton={false}
       render={
         <Link href={href} {...linkProps}>
           {children}

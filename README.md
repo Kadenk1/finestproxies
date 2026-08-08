@@ -11,21 +11,30 @@ business.
 
 ## Build status
 
-This project is being built in phases. **Phase 1 is complete**:
+This project is being built in phases. **Phases 1 and 2 are complete**:
 
-- Project structure, design system, and Prisma schema
-- Email/password authentication with sessions, roles, rate limiting, email
-  verification, and password reset
-- Public marketing site: Home, Pricing (DB-driven), About, FAQ, Documentation,
-  Contact, Terms of Service, Privacy Policy, Acceptable Use Policy, Login,
-  Register
-- Mock seed data (dev accounts, products, a mock upstream provider, gateways)
+**Phase 1** — Project structure, design system, and Prisma schema.
+Email/password authentication with sessions, roles, rate limiting, email
+verification, and password reset. Public marketing site: Home, Pricing
+(DB-driven), About, FAQ, Documentation, Contact, Terms of Service, Privacy
+Policy, Acceptable Use Policy, Login, Register.
 
-Not yet built (see the project's build order): the full customer dashboard,
-proxy generator, admin panel, routing engine, gateway control API, billing
-integration, and profit analytics. Minimal placeholder pages exist at
-`/dashboard` and `/admin` solely to prove the auth + role-gating flow works
-end to end.
+**Phase 2** — Customer dashboard (Overview with balances/charts, Proxies by
+product, Proxy Generator, Usage, Orders, Billing, API, Settings, Support)
+backed by a real `ProviderAdapter` interface and a `MockProviderAdapter`
+(`src/services/providers`). Customers can buy GB/IP allocations through a
+mock payment flow, generate proxy credentials bound to OUR gateway
+hostnames (never upstream credentials), and simulate traffic to exercise
+the usage-accounting pipeline. See `src/services/gateway`,
+`src/services/usage`, and `src/services/billing` for the orchestration
+logic behind those flows.
+
+Not yet built (see the project's build order): the admin panel, the real
+routing engine (Phase 2's route selection is "first enabled route" —
+health/latency/cost-aware scoring is Phase 4), the gateway control API,
+real billing integration (Stripe), and profit analytics. A minimal
+placeholder page exists at `/admin` solely to prove the auth + role-gating
+flow works end to end.
 
 ## Tech stack
 
@@ -142,21 +151,33 @@ npx prisma studio
 
 ## 6. Running the mock provider
 
-**Not yet implemented.** Phase 1 seeds a `Provider` row named "Mock Upstream
-Provider" directly in the database so the schema and dashboard have
-something to reference. The actual `MockProviderAdapter` — which simulates
-proxy issuance, usage, gateway health, latency, and outages behind the
-`ProviderAdapter` interface — is built in Phase 2 alongside the proxy
-generator.
+No separate process to run — `MockProviderAdapter`
+(`src/services/providers/mock-provider.ts`) runs in-process and backs its
+"capacity" with the seeded `Provider`/`ProviderProduct`/`ProviderLocation`
+rows. It's wired up as the only entry in the adapter registry
+(`src/services/providers/registry.ts`) and is what the Proxy Generator and
+gateway service call to provision credentials.
+
+To exercise usage accounting without waiting for real traffic, generate a
+credential from the dashboard and use its **Simulate usage** action (also
+available via `POST /api/dashboard/usage/simulate`) — this is a dev-only
+convenience tied to `MOCK_PROVIDER`, called out with a `TODO(production)` in
+the route handler.
 
 ## 7. Adding a real authorized upstream provider
 
-**Not yet implemented.** This lands in Phase 3 (admin provider management)
-and Phase 4 (routing engine). The plan: implement a new class satisfying the
-`ProviderAdapter` interface (see `src/services/providers`, scaffolded but
-empty), register it in the provider adapter factory, and configure the
-provider's cost/location/product data through the admin panel — application
-code outside the adapter never needs to change.
+**Adapter interface is implemented; admin UI to configure it is not (Phase
+3).** To add a real provider today: implement a new class satisfying
+`ProviderAdapter` (`src/services/providers/types.ts`) in a new file under
+`src/services/providers`, register it in
+`src/services/providers/registry.ts`, and add matching `Provider` /
+`ProviderProduct` / `ProviderLocation` / `ProviderCredential` rows (the
+latter holding secrets encrypted via `src/lib/crypto/secrets.ts`). Nothing
+in the dashboard, API routes, or `gateway-service` needs to change — they
+only ever go through the adapter interface and `GatewayRoute` rows.
+Phase 3 adds an admin UI for the provider/route configuration; Phase 4
+replaces today's "first enabled route" selection with health/latency/
+cost-aware scoring.
 
 ## 8. Deploying
 
@@ -171,6 +192,22 @@ Postgres and Redis as managed services, migrations run via
 heartbeat contract gateway agents use to report health. Until then, `Gateway`
 rows exist in the schema and are seeded with mock data for the dashboard to
 read.
+
+## Customer dashboard walkthrough
+
+Log in as `customer@proxygrid.com` and try, in order:
+
+1. **Orders** — buy some Residential GB or ISP IPs (mock payment settles
+   instantly).
+2. **Proxy Generator** — pick the product you just bought, a country,
+   protocol, and session type, and generate credentials. The host/port
+   shown are always OUR gateway (`resi.proxygrid.com:8000`, etc.), never an
+   upstream address.
+3. **Proxies → (product)** — see credentials you've generated; use
+   **Simulate usage** to inject traffic, or **Revoke** to disable one.
+4. **Usage / Overview** — bandwidth, requests, and balances update
+   immediately from the usage you simulated.
+5. **Support** — open a ticket and reply to it.
 
 ## Scripts
 
