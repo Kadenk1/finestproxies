@@ -234,10 +234,57 @@ cost-aware scoring.
 
 ## 8. Deploying
 
-**Not yet implemented / documented.** The intended shape: Next.js app
-deployed to a Node-capable host (e.g. Vercel or a container platform),
-Postgres and Redis as managed services, migrations run via
-`npm run db:deploy` in CI/CD before releasing a new version.
+Recommended stack: **Vercel** (app), **Neon** or **Supabase** (managed
+Postgres), **Upstash** (managed Redis). None of this is required to be
+these specific providers — anything that gives you a Postgres/Redis
+connection string and runs Node.js works — but this combination has the
+least setup friction with Next.js.
+
+1. **Push to GitHub.** Vercel deploys from a repo. Create a repo, then:
+   ```bash
+   git remote add origin <your-repo-url>
+   git push -u origin master
+   ```
+2. **Create the database.** Sign up at neon.tech (or supabase.com), create
+   a Postgres project, and copy the connection string it gives you — that's
+   your `DATABASE_URL` (use the same value for `DIRECT_URL` unless your
+   provider gives you a separate non-pooled connection string, in which
+   case use that for `DIRECT_URL`).
+3. **Create Redis.** Sign up at upstash.com, create a Redis database, copy
+   its connection string as `REDIS_URL`.
+4. **Import the project into Vercel.** vercel.com → New Project → import
+   your GitHub repo. Framework preset should auto-detect Next.js.
+5. **Set environment variables** in the Vercel project settings (every key
+   from `.env.example`, with real values):
+   - `DATABASE_URL`, `DIRECT_URL` — from step 2
+   - `REDIS_URL` — from step 3
+   - `NEXTAUTH_URL` — your production URL, e.g. `https://finestproxies.com`
+   - `NEXTAUTH_SECRET`, `SECRETS_ENCRYPTION_KEY`, `GATEWAY_AGENT_SECRET` —
+     generate fresh ones for production, don't reuse dev values:
+     ```bash
+     node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+     ```
+   - `NEXT_PUBLIC_BRAND_*` — only needed if overriding the defaults already
+     in `src/lib/config/brand.ts`
+   - `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` — only if Discord login
+     is enabled; also add `https://finestproxies.com/api/auth/callback/discord`
+     as a redirect URL in the Discord app settings
+6. **Deploy.** The `build` script runs `prisma migrate deploy` before
+   `next build`, so every deploy applies any pending migrations
+   automatically — no separate migration step needed.
+7. **Create your first admin account.** The seed script's dev accounts
+   (`admin@…` / `DevPassword123`) are for local development only — don't
+   run `db:seed` against production. Instead, register a normal account
+   through `/register` on the live site, then promote it: open your
+   database provider's SQL console (or `npx prisma studio` pointed at the
+   production `DATABASE_URL`) and run:
+   ```sql
+   UPDATE "User" SET role = 'ADMIN', status = 'ACTIVE' WHERE email = 'you@example.com';
+   ```
+8. **Point the domain at Vercel.** Project Settings → Domains → add
+   `finestproxies.com`. Vercel shows the exact DNS records to add — add
+   those in GoDaddy's DNS management page for the domain. Propagation is
+   usually fast (minutes) but can take longer.
 
 ## 9. Connecting our gateway infrastructure
 
