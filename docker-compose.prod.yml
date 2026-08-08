@@ -1,0 +1,85 @@
+# Production stack for a self-hosted VPS (e.g. Hostinger VPS). Postgres and
+# Redis stay internal to the compose network; Caddy is the only thing
+# exposed to the internet and handles automatic HTTPS.
+#
+# Usage on the server:
+#   cp .env.production.example .env.production   # fill in real secrets
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+#
+# The --env-file flag is required, not optional: Compose only
+# auto-loads a file literally named ".env" for the ${VAR} substitutions
+# below — since this project's local dev already uses ".env" for
+# `npm run dev`, production secrets live in ".env.production" instead,
+# which means every `docker compose` invocation against this file must
+# pass --env-file .env.production explicitly or POSTGRES_PASSWORD (no
+# default) silently resolves to an empty string.
+#
+# This is separate from docker-compose.yml, which is Postgres+Redis only,
+# for local development against `npm run dev`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finestproxies-postgres
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finestproxies}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-finestproxies}
+    volumes:
+      - finestproxies_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finestproxies} -d ${POSTGRES_DB:-finestproxies}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: finestproxies-redis
+    restart: unless-stopped
+    volumes:
+      - finestproxies_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finestproxies-app
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    expose:
+      - "3000" # internal only — Caddy is the public entrypoint, not this
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: finestproxies-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - finestproxies_caddy_data:/data
+      - finestproxies_caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  finestproxies_postgres_data:
+  finestproxies_redis_data:
+  finestproxies_caddy_data:
+  finestproxies_caddy_config:

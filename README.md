@@ -234,6 +234,12 @@ cost-aware scoring.
 
 ## 8. Deploying
 
+Two documented paths — pick one. Option A is less setup; Option B is what
+to use if you specifically want a VPS (e.g. Hostinger) rather than a
+managed platform.
+
+### Option A: Vercel (managed, least setup)
+
 Recommended stack: **Vercel** (app), **Neon** or **Supabase** (managed
 Postgres), **Upstash** (managed Redis). None of this is required to be
 these specific providers — anything that gives you a Postgres/Redis
@@ -285,6 +291,78 @@ least setup friction with Next.js.
    `finestproxies.com`. Vercel shows the exact DNS records to add — add
    those in GoDaddy's DNS management page for the domain. Propagation is
    usually fast (minutes) but can take longer.
+
+### Option B: self-hosted VPS (Hostinger or any Docker-capable server)
+
+Everything runs in Docker Compose on the server itself: Postgres, Redis,
+the app, and Caddy in front handling automatic HTTPS. Files:
+`Dockerfile`, `docker-compose.prod.yml`, `Caddyfile`,
+`.env.production.example`.
+
+Unlike Option A, migrations do **not** run at build time here (the
+database isn't reachable from inside a `docker build`) — they run when the
+app container **starts**, after Postgres is confirmed healthy. See the
+`CMD` in `Dockerfile` and `depends_on: condition: service_healthy` in
+`docker-compose.prod.yml`.
+
+1. **Provision the VPS.** Ubuntu 22.04/24.04, with Docker + the Docker
+   Compose plugin. Most VPS providers (Hostinger included) offer a
+   Docker-preinstalled OS template when you create the server — pick that
+   if available, otherwise install Docker per
+   [docs.docker.com/engine/install](https://docs.docker.com/engine/install/).
+   Make sure the firewall allows inbound `80` and `443` (and `22` for SSH)
+   — `ufw allow 80,443,22/tcp` if UFW is active. Postgres and Redis are
+   never exposed outside the Docker network in this setup (no `ports:`
+   mapping for them), so there's nothing to lock down there.
+2. **Point the domain at the VPS.** In GoDaddy's DNS management for the
+   domain, add an **A record**: host `@`, points to your VPS's public
+   IPv4 (shown in your hosting provider's dashboard). Add a second A
+   record for host `www` pointing to the same IP. Caddy (step 6) needs
+   this resolving correctly *before* it starts, or it can't get a TLS
+   certificate.
+3. **Get the code onto the server.**
+   ```bash
+   ssh root@<vps-ip>
+   git clone <your-repo-url> finestproxies && cd finestproxies
+   ```
+4. **Create `.env.production`** from the example and fill in real values
+   (a strong Postgres password, and fresh `NEXTAUTH_SECRET` /
+   `SECRETS_ENCRYPTION_KEY` / `GATEWAY_AGENT_SECRET` — generate with the
+   same `node -e "..."` one-liner as Option A):
+   ```bash
+   cp .env.production.example .env.production
+   nano .env.production
+   ```
+5. **Update the `Caddyfile`** if your domain isn't `finestproxies.com`.
+6. **Build and start everything:**
+   ```bash
+   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+   ```
+   First run pulls images, builds the app, and Caddy requests a TLS
+   certificate for the domain — give it a minute. Check status with
+   `docker compose --env-file .env.production -f docker-compose.prod.yml ps` and logs with
+   `docker compose --env-file .env.production -f docker-compose.prod.yml logs -f app`.
+7. **Create your first admin account** — same as Option A step 7: register
+   normally on the live site, then run the same `UPDATE "User" SET role =
+   'ADMIN', ...` SQL, but via `docker compose --env-file .env.production -f docker-compose.prod.yml
+   exec postgres psql -U finestproxies -d finestproxies` instead of a
+   provider's web console.
+8. **Deploying updates later:**
+   ```bash
+   git pull
+   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+   ```
+   There's no auto-deploy-on-push for a VPS the way Vercel does it — this
+   is a manual step (or something to wire up as a small GitHub Action
+   later) each time you want to ship a change.
+
+**Note on branding:** `NEXT_PUBLIC_*` env vars are baked into the app at
+*build* time, and `.env.production` isn't available until the container
+*runs* — so for this path, `NEXT_PUBLIC_BRAND_*` values in
+`.env.production` have no effect. The defaults in
+`src/lib/config/brand.ts` (already "Finest Proxies" / `finestproxies.com`)
+are what actually ships. Edit that file directly if you need to rebrand
+under this deployment path.
 
 ## 9. Connecting our gateway infrastructure
 
