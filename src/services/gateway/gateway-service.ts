@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secrets";
 import { getProviderAdapter } from "@/services/providers/registry";
 import { selectRoute } from "@/services/routing/routing-engine";
-import { classifyExitIp } from "@/services/gateway/exit-ip-classifier";
+import { classifyExitIp, isLowReputation } from "@/services/gateway/exit-ip-classifier";
+import { withLock } from "@/lib/security/rate-limit";
 import { gatewayPorts } from "@/lib/config/brand";
 import type { ProxyProtocol, ProxySessionType } from "@/generated/prisma/enums";
 
@@ -117,18 +118,24 @@ export async function generateProxyCredentials(
   const adapter = getProviderAdapter(route.provider.slug);
 
   // For a RESIDENTIAL product, customers reasonably expect every exit IP to
-  // actually be residential — not a mobile-carrier ASN (T-Mobile, Verizon
-  // Wireless, etc.), which upstream pools can include since carrier "Home
-  // Internet"/fixed-wireless products register on the same ASN as phones.
-  // Verifying that requires one live request through each freshly-minted
+  // actually look residential to whatever the customer's own target does
+  // with it — not a mobile-carrier ASN (T-Mobile, Verizon Wireless, etc.,
+  // which upstream pools can include since carrier "Home
+  // Internet"/fixed-wireless products register on the same ASN as phones),
+  // and not an IP already flagged as a known VPN/proxy or datacenter/hosting
+  // range. That second category matters beyond labeling accuracy: it's
+  // exactly the signal reputation-sensitive challenge systems (hCaptcha,
+  // Cloudflare, etc.) screen for, so a flagged IP is disproportionately
+  // likely to get rejected before a customer's request even completes.
+  // Verifying either requires one live request through each freshly-minted
   // session (see exit-ip-classifier.ts) — cheap for a handful of
   // credentials, but multiplying that by a 5,000-credential batch would
   // turn a ~4s request into many minutes and burn real upstream bandwidth
   // on retries. Only applied below this threshold; larger batches skip the
   // check entirely and get whatever the pool hands back, same as before.
-  const MOBILE_CHECK_MAX_QUANTITY = 25;
-  const MOBILE_CHECK_MAX_ATTEMPTS = 4;
-  const shouldCheckMobile = product.type === "RESIDENTIAL" && quantity <= MOBILE_CHECK_MAX_QUANTITY;
+  const QUALITY_CHECK_MAX_QUANTITY = 25;
+  const QUALITY_CHECK_MAX_ATTEMPTS = 4;
+  const shouldCheckQuality = product.type === "RESIDENTIAL" && quantity <= QUALITY_CHECK_MAX_QUANTITY;
 
   const mintUpstream = () =>
     adapter.createProxyCredential({
@@ -145,8 +152,8 @@ export async function generateProxyCredentials(
     Array.from({ length: quantity }, async () => {
       let upstream = await mintUpstream();
 
-      if (shouldCheckMobile) {
-        for (let attempt = 1; attempt < MOBILE_CHECK_MAX_ATTEMPTS; attempt++) {
+      if (shouldCheckQuality) {
+        for (let attempt = 1; attempt < QUALITY_CHECK_MAX_ATTEMPTS; attempt++) {
           const connection = await adapter.getUpstreamConnection(upstream.upstreamSessionRef);
           const classification = await classifyExitIp(
             connection.host,
@@ -155,11 +162,18 @@ export async function generateProxyCredentials(
             connection.password,
           );
           // Unknown (classifier unreachable) -> fail open, keep this one.
-          // Confirmed non-mobile -> done. Only a confirmed mobile ASN
-          // triggers a retry with a fresh (randomized) session.
-          if (!classification || !classification.mobile) break;
+          // Clean on both signals -> done. Mobile ASN or low-reputation
+          // (known proxy/hosting range) -> retry with a fresh (randomized)
+          // session.
+          if (!classification) break;
+          if (!classification.mobile && !isLowReputation(classification)) break;
+          const reason = classification.mobile
+            ? "a mobile-carrier ASN"
+            : classification.knownProxy
+              ? "a known VPN/proxy IP"
+              : "a datacenter/hosting-range IP";
           console.log(
-            `[gateway] exit IP ${classification.ip} (${classification.isp}) is a mobile-carrier ASN, retrying (attempt ${attempt}/${MOBILE_CHECK_MAX_ATTEMPTS - 1})`,
+            `[gateway] exit IP ${classification.ip} (${classification.isp}) is ${reason}, retrying (attempt ${attempt}/${QUALITY_CHECK_MAX_ATTEMPTS - 1})`,
           );
           upstream = await mintUpstream();
         }
@@ -318,8 +332,26 @@ export function revealCredentialPassword(passwordEnc: string): string {
  * repeatedly retrying a provider that's currently down. Falls back to the
  * original provider if no route is currently available (e.g. everything's
  * degraded) rather than failing outright.
+ *
+ * The read-decide-write sequence (is the session expired? mint a
+ * replacement, persist it) runs under a per-credential lock — a single
+ * browser page load fires many near-simultaneous CONNECTs on one customer
+ * credential (main site + third-party domains like hCaptcha's + assets),
+ * and without serializing them, each one independently observes "expired"
+ * and independently rotates, splitting one browser session across several
+ * exit IPs mid-flow. See withLock's doc comment for why that specifically
+ * breaks third-party challenge widgets.
  */
 export async function resolveActiveUpstreamSession(
+  credentialId: string,
+  forceRotate = false,
+) {
+  return withLock(`resolve-upstream:${credentialId}`, () =>
+    resolveActiveUpstreamSessionLocked(credentialId, forceRotate),
+  );
+}
+
+async function resolveActiveUpstreamSessionLocked(
   credentialId: string,
   forceRotate = false,
 ) {
@@ -374,15 +406,47 @@ export async function resolveActiveUpstreamSession(
   }
 
   const adapter = getProviderAdapter(targetProviderSlug);
-  const upstream = await adapter.createProxyCredential({
-    productSlug: credential.product.slug,
-    country: credential.country ?? undefined,
-    region: credential.region ?? undefined,
-    city: credential.city ?? undefined,
-    protocol: credential.protocol,
-    sessionType: credential.sessionType,
-    sessionDurationMins: credential.sessionDurationMins ?? undefined,
-  });
+  const mintUpstream = () =>
+    adapter.createProxyCredential({
+      productSlug: credential.product.slug,
+      country: credential.country ?? undefined,
+      region: credential.region ?? undefined,
+      city: credential.city ?? undefined,
+      protocol: credential.protocol,
+      sessionType: credential.sessionType,
+      sessionDurationMins: credential.sessionDurationMins ?? undefined,
+    });
+
+  let upstream = await mintUpstream();
+
+  // Rotation is what a customer hits right after getting flagged/blocked —
+  // landing them on another low-reputation IP defeats the point. Bounded to
+  // 2 attempts (vs. 4 at issuance) since this runs inline on the customer's
+  // live request, not in a background batch; still fails open on a slow or
+  // unreachable classifier rather than adding latency for no benefit.
+  if (credential.product.type === "RESIDENTIAL") {
+    const ROTATE_QUALITY_CHECK_MAX_ATTEMPTS = 2;
+    for (let attempt = 1; attempt < ROTATE_QUALITY_CHECK_MAX_ATTEMPTS; attempt++) {
+      const connection = await adapter.getUpstreamConnection(upstream.upstreamSessionRef);
+      const classification = await classifyExitIp(
+        connection.host,
+        connection.port,
+        connection.username,
+        connection.password,
+      );
+      if (!classification) break;
+      if (!classification.mobile && !isLowReputation(classification)) break;
+      const reason = classification.mobile
+        ? "a mobile-carrier ASN"
+        : classification.knownProxy
+          ? "a known VPN/proxy IP"
+          : "a datacenter/hosting-range IP";
+      console.log(
+        `[gateway] rotated-to exit IP ${classification.ip} (${classification.isp}) is ${reason}, retrying (attempt ${attempt}/${ROTATE_QUALITY_CHECK_MAX_ATTEMPTS - 1})`,
+      );
+      upstream = await mintUpstream();
+    }
+  }
 
   const [, newSession] = await prisma.$transaction([
     prisma.proxySession.update({

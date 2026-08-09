@@ -336,6 +336,45 @@ function handleConnect(req, clientSocket, head) {
 
 const MAX_RETRY_SAFE_BODY_BYTES = 10 * 1024 * 1024; // 10MB
 
+// ---- Block/challenge detection (plain-HTTP path only) -------------------
+//
+// Only applies here, not to CONNECT/HTTPS — a CONNECT tunnel relays opaque
+// TLS bytes, so the gateway has no visibility into the target's response
+// there. On this path we do see status + a body prefix, so a same-IP
+// block/CAPTCHA challenge can be told apart from an ordinary origin 403/429
+// and retried on a fresh exit IP instead of being handed to the customer.
+//
+// Deliberately narrow: only the status codes these systems actually use,
+// plus body markers specific enough that a legitimate site's own 403 page
+// won't false-positive on them.
+
+const BLOCK_STATUS_CODES = new Set([403, 429, 503]);
+const BLOCK_BODY_MARKERS = [
+  "hcaptcha",
+  "h-captcha",
+  "g-recaptcha",
+  "recaptcha",
+  "cf-challenge",
+  "cf_chl_",
+  "checking your browser",
+  "attention required | cloudflare",
+  "perimeterx",
+  "_px-captcha",
+  "datadome",
+  "please verify you are a human",
+];
+const BLOCK_SNIFF_BYTES = 64 * 1024;
+
+function looksLikeBlockPage(statusCode, headers, bodyPrefix) {
+  if (!BLOCK_STATUS_CODES.has(statusCode)) return false;
+  const contentType = String(headers["content-type"] || "");
+  if (!contentType.includes("html") && !contentType.includes("json") && contentType !== "") {
+    return false;
+  }
+  const text = bodyPrefix.toString("utf8").toLowerCase();
+  return BLOCK_BODY_MARKERS.some((marker) => text.includes(marker));
+}
+
 async function handleHttpRequest(req, res) {
   activeConnections++;
   const startedAtMs = Date.now();
@@ -404,22 +443,90 @@ async function handleHttpRequest(req, res) {
       proxyReq.setTimeout(30_000, () => proxyReq.destroy(new Error("timeout")));
 
       proxyReq.on("response", (upstreamRes) => {
-        logEvent("http_established", {
-          username: auth.username,
-          sessionId,
-          destination: req.url,
-          upstream: `${upstream.host}:${upstream.port}`,
-          status: upstreamRes.statusCode,
-          durationMs: Date.now() - startedAtMs,
-          retried: forceRotate,
-          streamedBody: !canBufferForRetry,
+        // A same-IP block/CAPTCHA challenge is only worth detecting (and
+        // retrying) when we can safely resend the request — same constraint
+        // as the error-path retry below. Otherwise skip straight to the
+        // normal passthrough.
+        const canCheckForBlock =
+          !forceRotate && canBufferForRetry && BLOCK_STATUS_CODES.has(upstreamRes.statusCode);
+
+        if (!canCheckForBlock) {
+          logEvent("http_established", {
+            username: auth.username,
+            sessionId,
+            destination: req.url,
+            upstream: `${upstream.host}:${upstream.port}`,
+            status: upstreamRes.statusCode,
+            durationMs: Date.now() - startedAtMs,
+            retried: forceRotate,
+            streamedBody: !canBufferForRetry,
+          });
+          res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
+          upstreamRes.on("data", (d) => (bytesDown += d.length));
+          upstreamRes.pipe(res);
+          upstreamRes.on("end", () => {
+            done();
+            reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+          });
+          return;
+        }
+
+        // Buffer just enough of the body to sniff for a challenge page
+        // before committing headers to the client — once res.writeHead()
+        // is called the status/headers can't be taken back.
+        const sniffChunks = [];
+        let sniffLength = 0;
+        let decided = false;
+
+        const finishPassthrough = (firstChunk) => {
+          decided = true;
+          logEvent("http_established", {
+            username: auth.username,
+            sessionId,
+            destination: req.url,
+            upstream: `${upstream.host}:${upstream.port}`,
+            status: upstreamRes.statusCode,
+            durationMs: Date.now() - startedAtMs,
+            retried: forceRotate,
+            streamedBody: !canBufferForRetry,
+          });
+          res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
+          if (firstChunk) {
+            bytesDown += firstChunk.length;
+            res.write(firstChunk);
+          }
+          upstreamRes.on("data", (d) => (bytesDown += d.length));
+          upstreamRes.pipe(res);
+          upstreamRes.on("end", () => {
+            done();
+            reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+          });
+        };
+
+        upstreamRes.on("data", function onSniffChunk(chunk) {
+          sniffChunks.push(chunk);
+          sniffLength += chunk.length;
+          if (sniffLength < BLOCK_SNIFF_BYTES) return;
+          upstreamRes.removeListener("data", onSniffChunk);
+          finishPassthrough(Buffer.concat(sniffChunks, sniffLength));
         });
-        res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
-        upstreamRes.on("data", (d) => (bytesDown += d.length));
-        upstreamRes.pipe(res);
+
         upstreamRes.on("end", () => {
-          done();
-          reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+          if (decided) return;
+          const bodyPrefix = Buffer.concat(sniffChunks, sniffLength);
+          if (looksLikeBlockPage(upstreamRes.statusCode, upstreamRes.headers, bodyPrefix)) {
+            logEvent("http_retry", {
+              username: auth.username,
+              sessionId,
+              destination: req.url,
+              upstream: `${upstream.host}:${upstream.port}`,
+              errorClass: "BLOCKED",
+              reason: `target returned ${upstreamRes.statusCode} with a block/challenge page`,
+            });
+            attempt(true);
+            return;
+          }
+          finishPassthrough(bodyPrefix);
         });
       });
 
