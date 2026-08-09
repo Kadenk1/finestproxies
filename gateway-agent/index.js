@@ -249,6 +249,9 @@ function handleConnect(req, clientSocket, head) {
           }
 
           handshakeDone = true;
+          console.log(
+            `[connect] ${auth.username} -> ${targetHost}:${targetPort} via ${upstream.host}:${upstream.port}${forceRotate ? " (retry)" : ""}`,
+          );
           clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n", () => {
             if (head && head.length) {
               bytesUp += head.length;
@@ -342,6 +345,9 @@ async function handleHttpRequest(req, res) {
         headers,
         agent: httpUpstreamAgent,
       });
+      console.log(
+        `[http] ${auth.username} -> ${req.url} via ${upstream.host}:${upstream.port}${forceRotate ? " (retry)" : ""}`,
+      );
 
       proxyReq.on("response", (upstreamRes) => {
         res.writeHead(upstreamRes.statusCode, upstreamRes.headers);

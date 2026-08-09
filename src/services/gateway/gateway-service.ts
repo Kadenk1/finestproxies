@@ -303,9 +303,13 @@ export async function resolveActiveUpstreamSession(
     credential.sessionType === "STICKY" && stickyWindowMs > 0 && sessionAgeMs > stickyWindowMs;
 
   if (!sessionExpired && !forceRotate) {
+    console.log(
+      `[gateway] reuse session=${currentSession.id} credential=${credential.username} provider=${currentSession.provider.slug} ageMs=${sessionAgeMs}`,
+    );
     return currentSession;
   }
 
+  const rotateReason = forceRotate ? "forceRotate (retry after failure)" : "sticky window expired";
   const selected = await selectRoute(credential.productId, credential.country ?? undefined);
   const route = selected
     ? await prisma.gatewayRoute.findUnique({
@@ -319,6 +323,16 @@ export async function resolveActiveUpstreamSession(
   const targetProviderSlug = route?.provider.slug ?? currentSession.provider.slug;
   const targetProviderId = route?.providerId ?? currentSession.providerId;
   const targetGatewayId = route?.gatewayId ?? currentSession.gatewayId;
+
+  if (targetProviderSlug !== currentSession.provider.slug) {
+    console.log(
+      `[gateway] FAILOVER credential=${credential.username} ${currentSession.provider.slug} -> ${targetProviderSlug} (reason: ${rotateReason})`,
+    );
+  } else {
+    console.log(
+      `[gateway] rotate session credential=${credential.username} provider=${targetProviderSlug} (reason: ${rotateReason})`,
+    );
+  }
 
   const adapter = getProviderAdapter(targetProviderSlug);
   const upstream = await adapter.createProxyCredential({
@@ -348,6 +362,10 @@ export async function resolveActiveUpstreamSession(
       include: { provider: true },
     }),
   ]);
+
+  console.log(
+    `[gateway] new session=${newSession.id} credential=${credential.username} provider=${targetProviderSlug} exitCountry=${upstream.exitCountry ?? "unknown"} exitIp=${upstream.exitIp ?? "unknown (not known synchronously for this provider)"}`,
+  );
 
   return newSession;
 }
