@@ -6,6 +6,7 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { Gauge, Percent, DollarSign, Database } from "lucide-react";
 import { ProviderCostConfig } from "@/components/admin/provider-cost-config";
 import { ProviderLocationsForm } from "@/components/admin/provider-locations-form";
+import { TestProviderConnectionButton } from "@/components/admin/test-provider-connection-button";
 import { bytesToGb } from "@/services/usage/usage-service";
 
 const statusVariant: Record<string, "default" | "secondary" | "destructive"> = {
@@ -49,10 +50,18 @@ export default async function AdminProviderDetailPage({
           <h1 className="text-2xl font-semibold text-foreground">{provider.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{provider.slug}</p>
         </div>
-        <Badge variant={statusVariant[provider.healthStatus] ?? "secondary"}>
-          {provider.healthStatus}
-        </Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant={statusVariant[provider.healthStatus] ?? "secondary"}>
+            {provider.healthStatus}
+          </Badge>
+          <TestProviderConnectionButton providerId={provider.id} />
+        </div>
       </div>
+      {provider.lastHealthCheckAt && (
+        <p className="-mt-4 text-xs text-muted-foreground">
+          Last tested {provider.lastHealthCheckAt.toLocaleString()}
+        </p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Latency" value={`${provider.currentLatencyMs ?? "—"}ms`} icon={Gauge} />
