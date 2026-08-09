@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const generateProxySchema = z.object({
-  productSlug: z.enum(["residential", "isp", "mobile"]),
+  productSlug: z.string().trim().min(1),
   country: z.string().trim().max(2).optional(),
   region: z.string().trim().max(120).optional(),
   city: z.string().trim().max(120).optional(),

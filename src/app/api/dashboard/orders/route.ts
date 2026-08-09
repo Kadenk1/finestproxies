@@ -5,6 +5,7 @@ import {
   purchaseProduct,
   createStripeCheckoutSession,
   InvalidQuantityError,
+  InvalidCouponError,
 } from "@/services/billing/order-service";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 import { isStripeConfigured } from "@/lib/config/stripe";
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ order }, { status: 201 });
   } catch (err) {
-    if (err instanceof InvalidQuantityError) {
+    if (err instanceof InvalidQuantityError || err instanceof InvalidCouponError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
     const message = err instanceof Error ? err.message : "Purchase failed.";

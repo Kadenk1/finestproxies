@@ -11,6 +11,63 @@ export class InvalidQuantityError extends Error {
   }
 }
 
+export class InvalidCouponError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidCouponError";
+  }
+}
+
+/**
+ * Validates the coupon and atomically claims a redemption slot (the
+ * updateMany's WHERE re-checks active/expiry/limit at claim time, so a
+ * coupon that gets exhausted or deactivated between the initial lookup and
+ * this call is caught rather than over-redeemed).
+ */
+async function redeemCoupon(code: string, productId: string, subtotal: Prisma.Decimal, unitPrice: Prisma.Decimal) {
+  const coupon = await prisma.coupon.findUnique({ where: { code } });
+  if (!coupon || !coupon.active) {
+    throw new InvalidCouponError("Coupon not found or no longer active.");
+  }
+  if (coupon.expiresAt && coupon.expiresAt < new Date()) {
+    throw new InvalidCouponError("Coupon has expired.");
+  }
+  if (coupon.maxRedemptions != null && coupon.timesRedeemed >= coupon.maxRedemptions) {
+    throw new InvalidCouponError("Coupon has reached its redemption limit.");
+  }
+  if (coupon.appliesToProductId && coupon.appliesToProductId !== productId) {
+    throw new InvalidCouponError("Coupon does not apply to this product.");
+  }
+
+  let rawDiscount: Prisma.Decimal;
+  switch (coupon.type) {
+    case "PERCENT":
+      rawDiscount = subtotal.mul(coupon.value).div(100);
+      break;
+    case "FIXED_AMOUNT":
+      rawDiscount = coupon.value;
+      break;
+    case "FREE_GB":
+      rawDiscount = coupon.value.mul(unitPrice);
+      break;
+  }
+  const discount = rawDiscount.greaterThan(subtotal) ? subtotal : rawDiscount;
+
+  const where: Prisma.CouponWhereInput = { id: coupon.id, active: true };
+  if (coupon.maxRedemptions != null) {
+    where.timesRedeemed = { lt: coupon.maxRedemptions };
+  }
+  const claimed = await prisma.coupon.updateMany({
+    where,
+    data: { timesRedeemed: { increment: 1 } },
+  });
+  if (claimed.count === 0) {
+    throw new InvalidCouponError("Coupon is no longer available.");
+  }
+
+  return { couponId: coupon.id, discount };
+}
+
 /**
  * Creates a PENDING order. Callers decide how it gets paid:
  * - Stripe configured: the API route creates a Checkout Session for this
@@ -24,6 +81,7 @@ export async function purchaseProduct(params: {
   userId: string;
   productId: string;
   quantity: number;
+  couponCode?: string;
 }) {
   const product = await prisma.product.findUnique({
     where: { id: params.productId },
@@ -41,12 +99,23 @@ export async function purchaseProduct(params: {
   const unitPrice = product.retailPrice;
   const totalPrice = unitPrice.mul(params.quantity);
 
+  let couponId: string | undefined;
+  let discount = new Prisma.Decimal(0);
+  if (params.couponCode) {
+    const redeemed = await redeemCoupon(params.couponCode, product.id, totalPrice, unitPrice);
+    couponId = redeemed.couponId;
+    discount = redeemed.discount;
+  }
+  const total = totalPrice.sub(discount);
+
   const order = await prisma.order.create({
     data: {
       userId: params.userId,
       status: "PENDING",
       subtotal: totalPrice,
-      total: totalPrice,
+      discount,
+      total,
+      couponId,
       items: {
         create: [
           {
@@ -205,22 +274,33 @@ export async function createStripeCheckoutSession(orderId: string) {
 
   const appUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
+  // purchaseProduct() always creates exactly one OrderItem — charging
+  // order.total as a single line item (rather than summing each item's
+  // pre-discount totalPrice) is what makes a coupon's discount actually
+  // reduce what Stripe collects, instead of just reducing what gets
+  // recorded internally while the customer's card is charged full price.
+  const item = order.items[0];
+  const description =
+    order.items.length === 1
+      ? `${item.product.name} — ${Number(item.quantity)} ${item.product.billingUnit}`
+      : `${order.items.length} items`;
+
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
       customer_email: order.user.email,
       client_reference_id: order.id,
       metadata: { orderId: order.id },
-      line_items: order.items.map((item) => ({
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: Math.round(Number(item.totalPrice) * 100),
-          product_data: {
-            name: `${item.product.name} — ${Number(item.quantity)} ${item.product.billingUnit}`,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: Math.round(Number(order.total) * 100),
+            product_data: { name: description },
           },
         },
-      })),
+      ],
       success_url: `${appUrl}/dashboard/orders?stripe=success`,
       cancel_url: `${appUrl}/dashboard/orders?stripe=cancel`,
     },

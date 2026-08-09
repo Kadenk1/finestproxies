@@ -36,6 +36,7 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
   const router = useRouter();
   const [productId, setProductId] = useState(products[0]?.id ?? "");
   const [quantity, setQuantity] = useState(products[0]?.minPurchase ?? 1);
+  const [couponCode, setCouponCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const product = products.find((p) => p.id === productId);
@@ -48,7 +49,7 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
       const res = await fetch("/api/dashboard/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, quantity }),
+        body: JSON.stringify({ productId, quantity, couponCode: couponCode || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -59,7 +60,13 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
         window.location.href = data.checkoutUrl;
         return;
       }
-      toast.success(`Purchased ${quantity} ${unitNoun[product.billingUnit]} of ${product.name}.`);
+      const discount = Number(data.order?.discount ?? 0);
+      toast.success(
+        discount > 0
+          ? `Purchased ${quantity} ${unitNoun[product.billingUnit]} of ${product.name} — coupon saved $${discount.toFixed(2)}.`
+          : `Purchased ${quantity} ${unitNoun[product.billingUnit]} of ${product.name}.`,
+      );
+      setCouponCode("");
       router.refresh();
     } catch {
       toast.error("Something went wrong. Try again.");
@@ -71,50 +78,61 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
   if (products.length === 0) return null;
 
   return (
-    <div className="grid gap-4 rounded-2xl border border-border/70 bg-card p-6 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end">
-      <div className="space-y-1.5">
-        <Label>Product</Label>
-        <Select
-          value={productId}
-          onValueChange={(v) => {
-            if (!v) return;
-            setProductId(v);
-            const p = products.find((x) => x.id === v);
-            if (p) setQuantity(p.minPurchase);
-          }}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name} — ${p.retailPrice.toFixed(2)}/{unitNoun[p.billingUnit].replace(/s$/, "")}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <div className="space-y-4 rounded-2xl border border-border/70 bg-card p-6">
+      <div className="grid gap-4 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end">
+        <div className="space-y-1.5">
+          <Label>Product</Label>
+          <Select
+            value={productId}
+            onValueChange={(v) => {
+              if (!v) return;
+              setProductId(v);
+              const p = products.find((x) => x.id === v);
+              if (p) setQuantity(p.minPurchase);
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {products.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name} — ${p.retailPrice.toFixed(2)}/{unitNoun[p.billingUnit].replace(/s$/, "")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Quantity ({product ? unitNoun[product.billingUnit] : ""})</Label>
+          <Input
+            type="number"
+            min={product?.minPurchase}
+            max={product?.maxPurchase}
+            value={quantity}
+            onChange={(e) => setQuantity(Number(e.target.value))}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Total</Label>
+          <div className="flex h-8 items-center text-lg font-semibold text-foreground">
+            ${total.toFixed(2)}
+          </div>
+        </div>
+        <Button onClick={handleBuy} disabled={submitting || !product}>
+          <ShoppingCart className="h-4 w-4" />
+          {submitting ? "Processing..." : "Buy now"}
+        </Button>
       </div>
-      <div className="space-y-1.5">
-        <Label>Quantity ({product ? unitNoun[product.billingUnit] : ""})</Label>
+      <div className="space-y-1.5 sm:max-w-xs">
+        <Label>Coupon code (optional)</Label>
         <Input
-          type="number"
-          min={product?.minPurchase}
-          max={product?.maxPurchase}
-          value={quantity}
-          onChange={(e) => setQuantity(Number(e.target.value))}
+          value={couponCode}
+          onChange={(e) => setCouponCode(e.target.value)}
+          placeholder="e.g. WELCOME10"
+          className="uppercase"
         />
       </div>
-      <div className="space-y-1.5">
-        <Label>Total</Label>
-        <div className="flex h-8 items-center text-lg font-semibold text-foreground">
-          ${total.toFixed(2)}
-        </div>
-      </div>
-      <Button onClick={handleBuy} disabled={submitting || !product}>
-        <ShoppingCart className="h-4 w-4" />
-        {submitting ? "Processing..." : "Buy now"}
-      </Button>
     </div>
   );
 }
