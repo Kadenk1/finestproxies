@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secrets";
 import { getProviderAdapter } from "@/services/providers/registry";
 import { selectRoute } from "@/services/routing/routing-engine";
+import { classifyExitIp } from "@/services/gateway/exit-ip-classifier";
 import { gatewayPorts } from "@/lib/config/brand";
 import type { ProxyProtocol, ProxySessionType } from "@/generated/prisma/enums";
 
@@ -115,17 +116,55 @@ export async function generateProxyCredentials(
 
   const adapter = getProviderAdapter(route.provider.slug);
 
+  // For a RESIDENTIAL product, customers reasonably expect every exit IP to
+  // actually be residential — not a mobile-carrier ASN (T-Mobile, Verizon
+  // Wireless, etc.), which upstream pools can include since carrier "Home
+  // Internet"/fixed-wireless products register on the same ASN as phones.
+  // Verifying that requires one live request through each freshly-minted
+  // session (see exit-ip-classifier.ts) — cheap for a handful of
+  // credentials, but multiplying that by a 5,000-credential batch would
+  // turn a ~4s request into many minutes and burn real upstream bandwidth
+  // on retries. Only applied below this threshold; larger batches skip the
+  // check entirely and get whatever the pool hands back, same as before.
+  const MOBILE_CHECK_MAX_QUANTITY = 25;
+  const MOBILE_CHECK_MAX_ATTEMPTS = 4;
+  const shouldCheckMobile = product.type === "RESIDENTIAL" && quantity <= MOBILE_CHECK_MAX_QUANTITY;
+
+  const mintUpstream = () =>
+    adapter.createProxyCredential({
+      productSlug: input.productSlug,
+      country: input.country,
+      region: input.region,
+      city: input.city,
+      protocol: input.protocol,
+      sessionType: input.sessionType,
+      sessionDurationMins: input.sessionDurationMins,
+    });
+
   const items = await Promise.all(
     Array.from({ length: quantity }, async () => {
-      const upstream = await adapter.createProxyCredential({
-        productSlug: input.productSlug,
-        country: input.country,
-        region: input.region,
-        city: input.city,
-        protocol: input.protocol,
-        sessionType: input.sessionType,
-        sessionDurationMins: input.sessionDurationMins,
-      });
+      let upstream = await mintUpstream();
+
+      if (shouldCheckMobile) {
+        for (let attempt = 1; attempt < MOBILE_CHECK_MAX_ATTEMPTS; attempt++) {
+          const connection = await adapter.getUpstreamConnection(upstream.upstreamSessionRef);
+          const classification = await classifyExitIp(
+            connection.host,
+            connection.port,
+            connection.username,
+            connection.password,
+          );
+          // Unknown (classifier unreachable) -> fail open, keep this one.
+          // Confirmed non-mobile -> done. Only a confirmed mobile ASN
+          // triggers a retry with a fresh (randomized) session.
+          if (!classification || !classification.mobile) break;
+          console.log(
+            `[gateway] exit IP ${classification.ip} (${classification.isp}) is a mobile-carrier ASN, retrying (attempt ${attempt}/${MOBILE_CHECK_MAX_ATTEMPTS - 1})`,
+          );
+          upstream = await mintUpstream();
+        }
+      }
+
       return {
         id: randomUUID(),
         username: `cg_${alphanumeric(12)}`,
