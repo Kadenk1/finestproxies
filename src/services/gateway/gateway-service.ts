@@ -11,6 +11,17 @@ const alphanumeric = customAlphabet(
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
 );
 
+/**
+ * sessionDurationMins is how long a STICKY session pins to one exit IP —
+ * it is NOT how long the customer's credential (username/password to our
+ * gateway) stays valid. Those used to be conflated: CustomerProxyCredential
+ * .expiresAt was set from this duration, so the whole credential died the
+ * moment the sticky window closed instead of just rotating to a new IP.
+ * The credential now has no auto-expiry; resolveActiveUpstreamSession()
+ * below is what actually enforces the sticky window, by minting a fresh
+ * upstream session (new IP) once the current one is older than this many
+ * minutes, transparently, on the customer's next request.
+ */
 export interface GenerateCredentialInput {
   userId: string;
   productSlug: string;
@@ -103,10 +114,6 @@ export async function generateProxyCredentials(
   });
 
   const adapter = getProviderAdapter(route.provider.slug);
-  const expiresAt =
-    input.sessionType === "STICKY" && input.sessionDurationMins
-      ? new Date(Date.now() + input.sessionDurationMins * 60_000)
-      : null;
 
   const items = await Promise.all(
     Array.from({ length: quantity }, async () => {
@@ -145,7 +152,6 @@ export async function generateProxyCredentials(
         region: input.region,
         city: input.city,
         sessionDurationMins: input.sessionDurationMins,
-        expiresAt,
         createdAt,
       })),
     }),
@@ -248,4 +254,69 @@ export async function regenerateProxyCredential(
 /** Decrypts a credential's password for one-time display to its owner only. */
 export function revealCredentialPassword(passwordEnc: string): string {
   return decryptSecret(passwordEnc);
+}
+
+/**
+ * Called by the Gateway Control API's /resolve endpoint on every new
+ * connection. For a ROTATING credential this just returns its one
+ * permanent session (each generated credential is already pinned to its
+ * own distinct exit IP — see the IPRoyal/Bright Data adapters). For STICKY,
+ * it checks whether the current session has outlived sessionDurationMins;
+ * if so, it mints a fresh upstream session (new exit IP) and persists it,
+ * closing out the old one — the credential itself never expires because of
+ * this, only the exit IP behind it changes.
+ */
+export async function resolveActiveUpstreamSession(credentialId: string) {
+  const credential = await prisma.customerProxyCredential.findUniqueOrThrow({
+    where: { id: credentialId },
+    include: {
+      product: true,
+      sessions: { orderBy: { startedAt: "desc" }, take: 1, include: { provider: true } },
+    },
+  });
+
+  const currentSession = credential.sessions[0];
+  if (!currentSession) {
+    throw new Error("Credential has no session.");
+  }
+
+  const sessionAgeMs = Date.now() - currentSession.startedAt.getTime();
+  const stickyWindowMs = (credential.sessionDurationMins ?? 0) * 60_000;
+  const sessionExpired =
+    credential.sessionType === "STICKY" && stickyWindowMs > 0 && sessionAgeMs > stickyWindowMs;
+
+  if (!sessionExpired) {
+    return currentSession;
+  }
+
+  const adapter = getProviderAdapter(currentSession.provider.slug);
+  const upstream = await adapter.createProxyCredential({
+    productSlug: credential.product.slug,
+    country: credential.country ?? undefined,
+    region: credential.region ?? undefined,
+    city: credential.city ?? undefined,
+    protocol: credential.protocol,
+    sessionType: credential.sessionType,
+    sessionDurationMins: credential.sessionDurationMins ?? undefined,
+  });
+
+  const [, newSession] = await prisma.$transaction([
+    prisma.proxySession.update({
+      where: { id: currentSession.id },
+      data: { endedAt: new Date() },
+    }),
+    prisma.proxySession.create({
+      data: {
+        credentialId: credential.id,
+        gatewayId: currentSession.gatewayId,
+        providerId: currentSession.providerId,
+        upstreamSessionRef: upstream.upstreamSessionRef,
+        exitCountry: upstream.exitCountry,
+        exitIp: upstream.exitIp,
+      },
+      include: { provider: true },
+    }),
+  ]);
+
+  return newSession;
 }

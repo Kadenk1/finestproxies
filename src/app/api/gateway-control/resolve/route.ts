@@ -5,6 +5,7 @@ import { resolveCredentialSchema } from "@/lib/validation/gateway-control";
 import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import { getProviderAdapter } from "@/services/providers/registry";
+import { resolveActiveUpstreamSession } from "@/services/gateway/gateway-service";
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -34,10 +35,7 @@ export async function POST(request: Request) {
 
   const credential = await prisma.customerProxyCredential.findUnique({
     where: { username: parsed.data.username },
-    include: {
-      gateway: true,
-      sessions: { orderBy: { startedAt: "desc" }, take: 1, include: { provider: true } },
-    },
+    include: { gateway: true },
   });
   if (!credential) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
@@ -49,16 +47,16 @@ export async function POST(request: Request) {
   if (credential.status !== "ACTIVE") {
     return NextResponse.json({ error: "Credential is not active" }, { status: 403 });
   }
-  if (credential.expiresAt && credential.expiresAt < new Date()) {
-    return NextResponse.json({ error: "Credential has expired" }, { status: 403 });
-  }
-
-  const session = credential.sessions[0];
-  if (!session?.upstreamSessionRef) {
-    return NextResponse.json({ error: "No active session for this credential" }, { status: 404 });
-  }
 
   try {
+    // Transparently mints a fresh upstream session (new exit IP) if this is
+    // STICKY and the current one has outlived sessionDurationMins — the
+    // credential itself has no expiry tied to that window.
+    const session = await resolveActiveUpstreamSession(credential.id);
+    if (!session.upstreamSessionRef) {
+      return NextResponse.json({ error: "No active session for this credential" }, { status: 404 });
+    }
+
     const adapter = getProviderAdapter(session.provider.slug);
     const upstream = await adapter.getUpstreamConnection(session.upstreamSessionRef);
 
