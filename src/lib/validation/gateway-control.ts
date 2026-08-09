@@ -25,3 +25,10 @@ export const usageIngestSchema = z.object({
 });
 
 export type UsageIngestInput = z.infer<typeof usageIngestSchema>;
+
+export const resolveCredentialSchema = z.object({
+  username: z.string().trim().min(1),
+  password: z.string().min(1),
+});
+
+export type ResolveCredentialInput = z.infer<typeof resolveCredentialSchema>;

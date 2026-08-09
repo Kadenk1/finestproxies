@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secrets";
 import { getProviderAdapter } from "@/services/providers/registry";
 import { selectRoute } from "@/services/routing/routing-engine";
-import { gatewayHosts, gatewayPorts } from "@/lib/config/brand";
+import { gatewayPorts } from "@/lib/config/brand";
 import type { ProxyProtocol, ProxySessionType } from "@/generated/prisma/enums";
 
 const alphanumeric = customAlphabet(
@@ -36,18 +36,6 @@ export interface GeneratedCredential {
   createdAt: Date;
 }
 
-function hostFor(productSlug: string): string {
-  switch (productSlug) {
-    case "residential":
-      return gatewayHosts.residential;
-    case "isp":
-      return gatewayHosts.isp;
-    case "mobile":
-      return gatewayHosts.mobile;
-    default:
-      return gatewayHosts.generic;
-  }
-}
 
 function portFor(protocol: ProxyProtocol): number {
   return protocol === "SOCKS5" ? gatewayPorts.socks5 : gatewayPorts.http;
@@ -156,7 +144,7 @@ export async function generateProxyCredential(
 
   return {
     id: credential.id,
-    host: hostFor(product.slug),
+    host: route.gateway.hostname,
     port: portFor(input.protocol),
     username,
     password,

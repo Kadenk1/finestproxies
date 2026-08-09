@@ -9,6 +9,7 @@ import type {
   GatewayHealthResult,
   LocationOption,
   ProductOption,
+  UpstreamConnectionInfo,
 } from "./types";
 
 const PROVIDER_SLUG = "mock-provider";
@@ -118,6 +119,10 @@ export class MockProviderAdapter implements ProviderAdapter {
       costPerIp: pp.costPerIp ? Number(pp.costPerIp) : undefined,
       costPerPort: pp.costPerPort ? Number(pp.costPerPort) : undefined,
     }));
+  }
+
+  async getUpstreamConnection(_upstreamSessionRef: string): Promise<UpstreamConnectionInfo> {
+    throw new Error("Mock provider has no real upstream — nothing to connect to.");
   }
 }
 

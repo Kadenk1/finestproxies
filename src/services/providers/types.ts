@@ -53,6 +53,19 @@ export interface LocationOption {
   city?: string;
 }
 
+/**
+ * The literal TCP endpoint + credentials to actually dial the upstream
+ * provider. Only ever returned to the Gateway Control API's `/resolve`
+ * endpoint, which only a gateway agent (bearer GATEWAY_AGENT_SECRET) can
+ * call — never exposed to a customer or through any session-facing route.
+ */
+export interface UpstreamConnectionInfo {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
 export interface ProductOption {
   slug: string;
   costPerGb?: number;
@@ -81,4 +94,6 @@ export interface ProviderAdapter {
   getAvailableLocations(productSlug: string): Promise<LocationOption[]>;
 
   getAvailableProducts(): Promise<ProductOption[]>;
+
+  getUpstreamConnection(upstreamSessionRef: string): Promise<UpstreamConnectionInfo>;
 }

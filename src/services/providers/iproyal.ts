@@ -12,6 +12,7 @@ import type {
   GatewayHealthResult,
   LocationOption,
   ProductOption,
+  UpstreamConnectionInfo,
 } from "./types";
 
 const PROVIDER_SLUG = "iproyal";
@@ -190,6 +191,17 @@ export class IPRoyalProviderAdapter implements ProviderAdapter {
 
   async getAvailableProducts(): Promise<ProductOption[]> {
     return [{ slug: "residential" }];
+  }
+
+  async getUpstreamConnection(upstreamSessionRef: string): Promise<UpstreamConnectionInfo> {
+    // Unlike Bright Data, the full password (with targeting suffixes
+    // already applied) was stored directly in the ref at creation time —
+    // no need to re-derive it from stored credentials here.
+    const { username, password } = JSON.parse(upstreamSessionRef) as {
+      username: string;
+      password: string;
+    };
+    return { host: PROXY_HOST, port: PROXY_PORT, username, password };
   }
 }
 

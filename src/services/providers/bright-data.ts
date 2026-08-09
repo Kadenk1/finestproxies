@@ -12,6 +12,7 @@ import type {
   GatewayHealthResult,
   LocationOption,
   ProductOption,
+  UpstreamConnectionInfo,
 } from "./types";
 
 const PROVIDER_SLUG = "bright-data";
@@ -224,6 +225,12 @@ export class BrightDataProviderAdapter implements ProviderAdapter {
     // in the admin cost-config UI (per-Provider ProviderProduct rows), which
     // is the authoritative source the rest of the app already reads from.
     return [{ slug: "residential" }];
+  }
+
+  async getUpstreamConnection(upstreamSessionRef: string): Promise<UpstreamConnectionInfo> {
+    const { zonePassword } = await this.getZoneConfig();
+    const { username } = JSON.parse(upstreamSessionRef) as { username: string };
+    return { host: PROXY_HOST, port: PROXY_PORT, username, password: zonePassword };
   }
 }
 

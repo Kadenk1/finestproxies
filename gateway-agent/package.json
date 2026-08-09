@@ -1,0 +1,14 @@
+{
+  "name": "finestproxies-gateway-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone HTTP/HTTPS forward-proxy daemon. Authenticates incoming connections against the main app's Gateway Control API and relays traffic to the upstream provider (Bright Data, IPRoyal, ...). Never touches the database or SECRETS_ENCRYPTION_KEY directly.",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

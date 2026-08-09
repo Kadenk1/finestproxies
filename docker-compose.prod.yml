@@ -64,6 +64,22 @@ services:
       redis:
         condition: service_healthy
 
+  gateway-agent:
+    build:
+      context: ./gateway-agent
+      dockerfile: Dockerfile
+    container_name: finestproxies-gateway-agent
+    restart: unless-stopped
+    environment:
+      CONTROL_API_BASE: "http://app:3000"
+      GATEWAY_AGENT_SECRET: ${GATEWAY_AGENT_SECRET}
+      GATEWAY_HOSTNAME: ${GATEWAY_HOSTNAME:-proxy.finestproxies.com}
+      PORT: "8000"
+    ports:
+      - "8000:8000" # raw TCP/HTTP proxy protocol, not a website — bypasses Caddy entirely
+    depends_on:
+      - app
+
   caddy:
     image: caddy:2-alpine
     container_name: finestproxies-caddy
