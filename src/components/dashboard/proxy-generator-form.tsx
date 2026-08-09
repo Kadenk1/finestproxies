@@ -49,6 +49,7 @@ const ipSwitchOptions = [
   { value: "sticky-10", label: "Sticky — 10 minutes", sessionType: "STICKY" as const, minutes: 10 },
   { value: "sticky-30", label: "Sticky — 30 minutes", sessionType: "STICKY" as const, minutes: 30 },
   { value: "sticky-60", label: "Sticky — 60 minutes", sessionType: "STICKY" as const, minutes: 60 },
+  { value: "sticky-120", label: "Sticky — 120 minutes", sessionType: "STICKY" as const, minutes: 120 },
 ];
 
 export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry[] }) {
