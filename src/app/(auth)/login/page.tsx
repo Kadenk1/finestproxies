@@ -6,6 +6,12 @@ import { DiscordSignInButton } from "@/components/auth/discord-signin-button";
 import { isDiscordConfigured } from "@/lib/config/oauth";
 
 export const metadata: Metadata = { title: "Log in" };
+// isDiscordConfigured reads process.env at render time, but that env var is
+// only present at container runtime, not during `docker build` — a
+// statically-prerendered page would bake in whatever it saw at build time
+// (i.e. always false) and never reflect real runtime config. Force dynamic
+// rendering so this is evaluated per-request instead.
+export const dynamic = "force-dynamic";
 
 export default function LoginPage() {
   return (

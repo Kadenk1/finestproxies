@@ -6,6 +6,9 @@ import { DiscordSignInButton } from "@/components/auth/discord-signin-button";
 import { isDiscordConfigured } from "@/lib/config/oauth";
 
 export const metadata: Metadata = { title: "Create account" };
+// See the comment on this same line in login/page.tsx — isDiscordConfigured
+// must be evaluated at request time, not baked in at Docker build time.
+export const dynamic = "force-dynamic";
 
 export default function RegisterPage() {
   return (
