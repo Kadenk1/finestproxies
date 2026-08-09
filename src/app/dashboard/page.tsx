@@ -1,4 +1,4 @@
-import { Database, Router, Smartphone, Gauge, CalendarRange } from "lucide-react";
+import { Database, Gauge, CalendarRange } from "lucide-react";
 import { auth } from "@/auth";
 import { getDashboardOverview } from "@/lib/data/dashboard";
 import { StatCard } from "@/components/dashboard/stat-card";
@@ -18,21 +18,10 @@ const orderStatusVariant: Record<string, "default" | "secondary" | "destructive"
   CANCELLED: "destructive",
 };
 
-function balanceFor(
-  productBalances: Awaited<ReturnType<typeof getDashboardOverview>>["productBalances"],
-  slug: string,
-) {
-  return productBalances.find((b) => b.product.slug === slug);
-}
-
 export default async function DashboardOverviewPage() {
   const session = await auth();
   const userId = session!.user.id;
   const data = await getDashboardOverview(userId);
-
-  const resi = balanceFor(data.productBalances, "residential");
-  const isp = balanceFor(data.productBalances, "isp");
-  const mobile = balanceFor(data.productBalances, "mobile");
 
   return (
     <div className="space-y-8">
@@ -45,25 +34,28 @@ export default async function DashboardOverviewPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Residential remaining"
-          value={resi ? `${bytesToGb(resi.remainingBytes).toFixed(2)} GB` : "0 GB"}
-          hint={resi ? `of ${bytesToGb(resi.allocatedBytes).toFixed(0)} GB purchased` : "No balance yet"}
-          icon={Database}
-        />
-        <StatCard
-          label="ISP IPs"
-          value={isp ? `${Number(isp.remainingUnits).toFixed(0)}` : "0"}
-          hint={isp ? `of ${Number(isp.allocatedUnits).toFixed(0)} allocated` : "No balance yet"}
-          icon={Router}
-        />
-        <StatCard
-          label="Mobile remaining"
-          value={mobile ? `${bytesToGb(mobile.remainingBytes).toFixed(2)} GB` : "0 GB"}
-          hint={mobile ? `of ${bytesToGb(mobile.allocatedBytes).toFixed(0)} GB purchased` : "No balance yet"}
-          icon={Smartphone}
-        />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {data.productBalances.length === 0 ? (
+          <StatCard label="Balance" value="No balance yet" icon={Database} />
+        ) : (
+          data.productBalances.map((b) => (
+            <StatCard
+              key={b.id}
+              label={`${b.product.name} remaining`}
+              value={
+                b.product.billingUnit === "GB"
+                  ? `${bytesToGb(b.remainingBytes).toFixed(2)} GB`
+                  : `${Number(b.remainingUnits).toFixed(0)} ${b.product.billingUnit === "IP_MONTH" ? "IPs" : "units"}`
+              }
+              hint={
+                b.product.billingUnit === "GB"
+                  ? `of ${bytesToGb(b.allocatedBytes).toFixed(0)} GB purchased`
+                  : `of ${Number(b.allocatedUnits).toFixed(0)} allocated`
+              }
+              icon={Database}
+            />
+          ))
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
