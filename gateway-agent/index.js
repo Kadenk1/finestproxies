@@ -23,6 +23,28 @@ if (!AGENT_SECRET) {
   process.exit(1);
 }
 
+// ---- Structured diagnostic logging --------------------------------------
+//
+// One JSON line per connection lifecycle event, so failures are actually
+// queryable (grep by event/errorClass/host) instead of free-text messages.
+
+function classifyError(err, context) {
+  if (context === "timeout" || err?.message === "timeout") return "TIMEOUT";
+  const code = err?.code;
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DNS";
+  if (["ECONNREFUSED", "ECONNRESET", "EHOSTUNREACH", "ENETUNREACH", "EPIPE"].includes(code)) {
+    return "TCP";
+  }
+  if (code === "ETIMEDOUT") return "TIMEOUT";
+  return "OTHER";
+}
+
+function logEvent(event, fields) {
+  console.log(
+    JSON.stringify({ ts: new Date().toISOString(), event, ...fields }),
+  );
+}
+
 // Reused across all plain-HTTP upstream requests — Node's Agent already
 // pools/reuses sockets per host:port internally, so this alone gets
 // connection reuse for that path without any custom pooling logic (the
@@ -158,9 +180,13 @@ function parseProxyAuth(header) {
 
 function handleConnect(req, clientSocket, head) {
   activeConnections++;
+  const startedAtMs = Date.now();
   let finished = false;
   let bytesUp = 0;
   let bytesDown = 0;
+
+  const [targetHost, targetPortStr] = req.url.split(":");
+  const targetPort = targetPortStr || "443";
 
   const finish = (gatewayHostname, credentialUsername) => {
     if (finished) return;
@@ -179,9 +205,6 @@ function handleConnect(req, clientSocket, head) {
   const auth = parseProxyAuth(req.headers["proxy-authorization"]);
   if (!auth) return deny("407 Proxy Authentication Required");
 
-  const [targetHost, targetPortStr] = req.url.split(":");
-  const targetPort = targetPortStr || "443";
-
   // One retry with a forced-fresh upstream session (different exit IP) if
   // the current one fails to reach the target — a single bad/blocked IP
   // shouldn't take down every request on a credential until it's next
@@ -193,21 +216,36 @@ function handleConnect(req, clientSocket, head) {
       .then((resolved) => {
         if (!resolved) return deny("407 Proxy Authentication Required");
 
-        const { upstream, gatewayHostname, credentialUsername } = resolved;
+        const { upstream, gatewayHostname, credentialUsername, sessionId } = resolved;
         let handshakeDone = false;
         let attemptFailed = false;
 
-        const failAttempt = (reason) => {
+        const failAttempt = (reason, err) => {
           if (attemptFailed || handshakeDone) return;
           attemptFailed = true;
           upstreamSocket.destroy();
+          const errorClass = classifyError(err, reason);
           if (!forceRotate) {
-            console.error(
-              `retrying ${targetHost}:${targetPort} on a fresh upstream session after: ${reason}`,
-            );
+            logEvent("connect_retry", {
+              username: auth.username,
+              sessionId,
+              destination: `${targetHost}:${targetPort}`,
+              upstream: `${upstream.host}:${upstream.port}`,
+              errorClass,
+              reason,
+            });
             attempt(true);
           } else {
-            console.error(`giving up on ${targetHost}:${targetPort} after retry — ${reason}`);
+            logEvent("connect_failed", {
+              username: auth.username,
+              sessionId,
+              destination: `${targetHost}:${targetPort}`,
+              upstream: `${upstream.host}:${upstream.port}`,
+              errorClass,
+              reason,
+              durationMs: Date.now() - startedAtMs,
+              retried: true,
+            });
             clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
             finish(gatewayHostname, credentialUsername);
           }
@@ -239,19 +277,23 @@ function handleConnect(req, clientSocket, head) {
           upstreamSocket.removeListener("data", onUpstreamHandshakeData);
           const statusLine = responseBuffer.slice(0, responseBuffer.indexOf("\r\n")).toString();
           const remainder = responseBuffer.slice(headerEnd + 4);
+          const connectStatusCode = Number(statusLine.match(/^HTTP\/1\.[01]\s+(\d+)/)?.[1]) || null;
 
-          if (!/^HTTP\/1\.[01]\s+200/.test(statusLine)) {
-            console.error(
-              `upstream ${upstream.host}:${upstream.port} rejected CONNECT ${targetHost}:${targetPort} — ${statusLine}`,
-            );
+          if (connectStatusCode !== 200) {
             failAttempt(`upstream rejected: ${statusLine}`);
             return;
           }
 
           handshakeDone = true;
-          console.log(
-            `[connect] ${auth.username} -> ${targetHost}:${targetPort} via ${upstream.host}:${upstream.port}${forceRotate ? " (retry)" : ""}`,
-          );
+          logEvent("connect_established", {
+            username: auth.username,
+            sessionId,
+            destination: `${targetHost}:${targetPort}`,
+            upstream: `${upstream.host}:${upstream.port}`,
+            connectStatusCode,
+            durationMs: Date.now() - startedAtMs,
+            retried: forceRotate,
+          });
           clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n", () => {
             if (head && head.length) {
               bytesUp += head.length;
@@ -269,7 +311,7 @@ function handleConnect(req, clientSocket, head) {
         }
         upstreamSocket.on("data", onUpstreamHandshakeData);
 
-        upstreamSocket.on("error", (err) => failAttempt(err.message));
+        upstreamSocket.on("error", (err) => failAttempt(err.message, err));
         upstreamSocket.on("close", () => {
           if (!handshakeDone) return failAttempt("closed before handshake completed");
           clientSocket.destroy();
@@ -282,7 +324,7 @@ function handleConnect(req, clientSocket, head) {
         });
       })
       .catch((err) => {
-        console.error("resolve failed:", err.message);
+        logEvent("resolve_failed", { username: auth.username, error: err.message });
         deny("502 Bad Gateway");
       });
   }
@@ -292,8 +334,11 @@ function handleConnect(req, clientSocket, head) {
 
 // ---- Plain HTTP proxying (absolute-URI requests) ------------------------
 
+const MAX_RETRY_SAFE_BODY_BYTES = 10 * 1024 * 1024; // 10MB
+
 async function handleHttpRequest(req, res) {
   activeConnections++;
+  const startedAtMs = Date.now();
   const done = () => {
     activeConnections--;
   };
@@ -313,13 +358,24 @@ async function handleHttpRequest(req, res) {
     return done();
   }
 
-  // Buffer the request body up front (proxy traffic bodies are small —
-  // API calls, form posts) so a failed first attempt can be retried
-  // against a fresh upstream session without needing to re-read a stream
-  // that's already been consumed.
-  const bodyChunks = [];
-  for await (const chunk of req) bodyChunks.push(chunk);
-  const body = Buffer.concat(bodyChunks);
+  // Bodies under the cap get buffered up front so a failed first attempt
+  // can be retried against a fresh upstream session (the stream can't be
+  // re-read once consumed). Above the cap — or with no declared
+  // Content-Length, since it could be arbitrarily large — stream directly
+  // instead: buffering a multi-GB upload in memory to enable a retry that
+  // will rarely happen isn't a reasonable tradeoff. Streamed requests lose
+  // the automatic retry-on-failure; that's logged explicitly below rather
+  // than silently.
+  const declaredLength = Number(req.headers["content-length"]);
+  const canBufferForRetry =
+    Number.isFinite(declaredLength) && declaredLength > 0 && declaredLength <= MAX_RETRY_SAFE_BODY_BYTES;
+
+  let body = null;
+  if (canBufferForRetry) {
+    const bodyChunks = [];
+    for await (const chunk of req) bodyChunks.push(chunk);
+    body = Buffer.concat(bodyChunks);
+  }
 
   function attempt(forceRotate) {
     resolveCredential(auth.username, auth.password, forceRotate).then((resolved) => {
@@ -328,14 +384,14 @@ async function handleHttpRequest(req, res) {
         res.end();
         return done();
       }
-      const { upstream, gatewayHostname, credentialUsername } = resolved;
+      const { upstream, gatewayHostname, credentialUsername, sessionId } = resolved;
 
       const headers = { ...req.headers };
       delete headers["proxy-connection"];
       headers["proxy-authorization"] =
         "Basic " + Buffer.from(`${upstream.username}:${upstream.password}`).toString("base64");
-      if (body.length) headers["content-length"] = String(body.length);
 
+      let bytesUp = 0;
       let bytesDown = 0;
       const proxyReq = http.request({
         host: upstream.host,
@@ -345,27 +401,55 @@ async function handleHttpRequest(req, res) {
         headers,
         agent: httpUpstreamAgent,
       });
-      console.log(
-        `[http] ${auth.username} -> ${req.url} via ${upstream.host}:${upstream.port}${forceRotate ? " (retry)" : ""}`,
-      );
+      proxyReq.setTimeout(30_000, () => proxyReq.destroy(new Error("timeout")));
 
       proxyReq.on("response", (upstreamRes) => {
+        logEvent("http_established", {
+          username: auth.username,
+          sessionId,
+          destination: req.url,
+          upstream: `${upstream.host}:${upstream.port}`,
+          status: upstreamRes.statusCode,
+          durationMs: Date.now() - startedAtMs,
+          retried: forceRotate,
+          streamedBody: !canBufferForRetry,
+        });
         res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
         upstreamRes.on("data", (d) => (bytesDown += d.length));
         upstreamRes.pipe(res);
         upstreamRes.on("end", () => {
           done();
-          reportUsage(gatewayHostname, credentialUsername, body.length, bytesDown);
+          reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
         });
       });
 
       proxyReq.on("error", (err) => {
-        if (!forceRotate) {
-          console.error(`retrying ${req.url} on a fresh upstream session after: ${err.message}`);
+        const errorClass = classifyError(err, err.message);
+        // A request whose body we already streamed straight through can't
+        // be safely retried — the upstream may have received a partial
+        // body. Only bodies we buffered up front are safe to replay.
+        if (!forceRotate && (canBufferForRetry || bytesUp === 0)) {
+          logEvent("http_retry", {
+            username: auth.username,
+            sessionId,
+            destination: req.url,
+            upstream: `${upstream.host}:${upstream.port}`,
+            errorClass,
+            reason: err.message,
+          });
           attempt(true);
           return;
         }
-        console.error(`giving up on ${req.url} after retry — ${err.message}`);
+        logEvent("http_failed", {
+          username: auth.username,
+          sessionId,
+          destination: req.url,
+          upstream: `${upstream.host}:${upstream.port}`,
+          errorClass,
+          reason: err.message,
+          durationMs: Date.now() - startedAtMs,
+          retried: forceRotate,
+        });
         done();
         try {
           res.writeHead(502);
@@ -373,11 +457,103 @@ async function handleHttpRequest(req, res) {
         } catch {}
       });
 
-      proxyReq.end(body);
+      if (canBufferForRetry) {
+        bytesUp = body.length;
+        proxyReq.end(body);
+      } else {
+        req.on("data", (d) => (bytesUp += d.length));
+        req.pipe(proxyReq);
+      }
     });
   }
 
   attempt(false);
+}
+
+// ---- WebSocket (plain ws://) upgrade -------------------------------------
+//
+// wss:// (the vast majority of real-world WebSocket traffic) already works
+// with zero extra code — it's TLS, so clients tunnel it via CONNECT exactly
+// like HTTPS, and handleConnect relays it as opaque bytes. Plain ws://,
+// though, arrives as a standard HTTP upgrade request in absolute-URI form,
+// which Node's http.Server delivers via a separate 'upgrade' event — NOT
+// the normal 'request' event handleHttpRequest listens on. Without a
+// listener here, a plain ws:// connection through this proxy just hangs:
+// nothing ever responds to it.
+
+async function handleUpgrade(req, clientSocket, head) {
+  activeConnections++;
+  const startedAtMs = Date.now();
+  let bytesUp = 0;
+  let bytesDown = 0;
+  const finish = (gatewayHostname, credentialUsername) => {
+    activeConnections--;
+    if (gatewayHostname && credentialUsername) {
+      reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+    }
+  };
+
+  const auth = parseProxyAuth(req.headers["proxy-authorization"]);
+  if (!auth) {
+    clientSocket.end("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+    return finish();
+  }
+
+  const resolved = await resolveCredential(auth.username, auth.password).catch(() => null);
+  if (!resolved) {
+    clientSocket.end("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+    return finish();
+  }
+  const { upstream, gatewayHostname, credentialUsername, sessionId } = resolved;
+
+  const upstreamSocket = net.connect(upstream.port, upstream.host);
+  upstreamSocket.setTimeout(30_000, () => upstreamSocket.destroy(new Error("timeout")));
+
+  upstreamSocket.once("connect", () => {
+    const headers = { ...req.headers };
+    delete headers["proxy-connection"];
+    headers["proxy-authorization"] =
+      "Basic " + Buffer.from(`${upstream.username}:${upstream.password}`).toString("base64");
+    const headerLines = Object.entries(headers)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\r\n");
+    upstreamSocket.write(`${req.method} ${req.url} HTTP/1.1\r\n${headerLines}\r\n\r\n`);
+    if (head && head.length) {
+      bytesUp += head.length;
+      upstreamSocket.write(head);
+    }
+    logEvent("upgrade_established", {
+      username: auth.username,
+      sessionId,
+      destination: req.url,
+      upstream: `${upstream.host}:${upstream.port}`,
+      durationMs: Date.now() - startedAtMs,
+    });
+    clientSocket.on("data", (d) => (bytesUp += d.length));
+    upstreamSocket.on("data", (d) => (bytesDown += d.length));
+    clientSocket.pipe(upstreamSocket);
+    upstreamSocket.pipe(clientSocket);
+  });
+
+  upstreamSocket.on("error", (err) => {
+    logEvent("upgrade_failed", {
+      username: auth.username,
+      sessionId,
+      destination: req.url,
+      upstream: `${upstream.host}:${upstream.port}`,
+      errorClass: classifyError(err, err.message),
+      reason: err.message,
+      durationMs: Date.now() - startedAtMs,
+    });
+    clientSocket.destroy();
+    finish(gatewayHostname, credentialUsername);
+  });
+  upstreamSocket.on("close", () => {
+    clientSocket.destroy();
+    finish(gatewayHostname, credentialUsername);
+  });
+  clientSocket.on("error", () => upstreamSocket.destroy());
+  clientSocket.on("close", () => upstreamSocket.destroy());
 }
 
 // ---- Server --------------------------------------------------------------
@@ -400,6 +576,14 @@ server.on("connect", (req, clientSocket, head) => {
     console.error("connect handling error:", err.message);
     clientSocket.destroy();
   }
+});
+
+server.on("upgrade", (req, clientSocket, head) => {
+  clientSocket.on("error", () => {});
+  handleUpgrade(req, clientSocket, head).catch((err) => {
+    console.error("upgrade handling error:", err.message);
+    clientSocket.destroy();
+  });
 });
 
 server.listen(PORT, () => {

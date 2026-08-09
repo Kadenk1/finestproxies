@@ -69,6 +69,8 @@ export async function POST(request: Request) {
       upstream,
       credentialUsername: credential.username,
       gatewayHostname: credential.gateway.hostname,
+      sessionId: session.id,
+      exitCountry: session.exitCountry,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to resolve upstream connection.";
