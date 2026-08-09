@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/auth/require-admin";
 import { prisma } from "@/lib/db/prisma";
 import { providerSchema } from "@/lib/validation/provider";
-import { encryptSecret } from "@/lib/crypto/secrets";
+import { upsertProviderCredential } from "@/lib/db/provider-credentials";
 import { logAdminAction, requestIp } from "@/lib/audit";
 import { serializeBigInts } from "@/lib/serialize";
 
@@ -30,7 +30,7 @@ export async function PATCH(
     return NextResponse.json({ error: "A provider with that slug already exists." }, { status: 400 });
   }
 
-  const { apiKey, apiBaseUrl, notes, ...data } = parsed.data;
+  const { apiKey, extraCredentials, apiBaseUrl, notes, ...data } = parsed.data;
 
   const provider = await prisma.provider.update({
     where: { id },
@@ -38,18 +38,10 @@ export async function PATCH(
   });
 
   if (apiKey) {
-    await prisma.providerCredential.updateMany({
-      where: { providerId: id, type: "API_KEY", active: true },
-      data: { active: false, rotatedAt: new Date() },
-    });
-    await prisma.providerCredential.create({
-      data: {
-        providerId: id,
-        type: "API_KEY",
-        label: "Primary API key",
-        encryptedValue: encryptSecret(apiKey),
-      },
-    });
+    await upsertProviderCredential(id, "Primary API key", apiKey);
+  }
+  for (const cred of extraCredentials ?? []) {
+    await upsertProviderCredential(id, cred.label, cred.value);
   }
 
   await logAdminAction({

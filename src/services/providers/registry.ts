@@ -1,5 +1,6 @@
 import type { ProviderAdapter } from "./types";
 import { MockProviderAdapter } from "./mock-provider";
+import { BrightDataProviderAdapter } from "./bright-data";
 
 /**
  * Adapter factory. Add a real wholesale provider by implementing
@@ -9,6 +10,7 @@ import { MockProviderAdapter } from "./mock-provider";
  */
 const adapters: Record<string, () => ProviderAdapter> = {
   "mock-provider": () => new MockProviderAdapter(),
+  "bright-data": () => new BrightDataProviderAdapter(),
 };
 
 export function getProviderAdapter(providerSlug: string): ProviderAdapter {

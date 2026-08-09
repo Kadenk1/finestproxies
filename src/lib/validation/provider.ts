@@ -15,6 +15,20 @@ export const providerSchema = z.object({
   notes: z.string().trim().max(1000).optional().or(z.literal("")),
   /** Only sent when the admin wants to set/rotate the secret; blank leaves it untouched. */
   apiKey: z.string().trim().max(500).optional().or(z.literal("")),
+  /**
+   * Extra named secrets beyond the primary API key — e.g. a provider whose
+   * adapter needs an account ID, a zone/pool name, and a separate proxy
+   * password. Each entry upserts a ProviderCredential by label; blank
+   * entries are ignored so a saved form with empty trailing rows is safe.
+   */
+  extraCredentials: z
+    .array(
+      z.object({
+        label: z.string().trim().min(1).max(80),
+        value: z.string().trim().min(1).max(500),
+      }),
+    )
+    .optional(),
 });
 
 export type ProviderInput = z.infer<typeof providerSchema>;
