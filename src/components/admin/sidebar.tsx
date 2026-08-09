@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { Logo } from "@/components/shared/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const adminNavLinks = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
@@ -44,12 +45,13 @@ export function AdminSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-white/10 bg-navy-900 lg:flex">
-      <div className="flex h-16 items-center gap-2 border-b border-white/10 px-5">
-        <Link href="/admin" className="flex items-center gap-2 font-semibold text-white">
+    <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border px-5">
+        <Link href="/admin" className="flex items-center gap-2 font-semibold text-sidebar-foreground">
           <Logo className="h-8 w-8" />
           <span className="text-[15px] tracking-tight">{brand.name} Admin</span>
         </Link>
+        <ThemeToggle className="text-muted-foreground hover:text-sidebar-foreground" />
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
@@ -62,8 +64,8 @@ export function AdminSidebar() {
               className={cn(
                 "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
-                  ? "bg-white/10 text-white"
-                  : "text-white/70 hover:bg-white/5 hover:text-white",
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
               )}
             >
               <link.icon className="h-4 w-4 shrink-0" />
@@ -73,8 +75,8 @@ export function AdminSidebar() {
         })}
       </nav>
 
-      <div className="border-t border-white/10 p-3">
-        <SignOutButton className="w-full justify-start text-white/70 hover:bg-white/5 hover:text-white" />
+      <div className="border-t border-sidebar-border p-3">
+        <SignOutButton className="w-full justify-start text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
       </div>
     </aside>
   );

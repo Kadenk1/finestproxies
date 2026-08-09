@@ -38,7 +38,7 @@ export default async function BillingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Billing</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Billing</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Account credit, product balances, and payment history.
         </p>
@@ -64,13 +64,13 @@ export default async function BillingPage() {
       </div>
 
       <div>
-        <h2 className="mb-3 text-lg font-semibold text-navy-900">Payment history</h2>
+        <h2 className="mb-3 text-lg font-semibold text-foreground">Payment history</h2>
         {payments.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-border/70 bg-white p-10 text-center text-sm text-muted-foreground">
+          <p className="rounded-2xl border border-dashed border-border/70 bg-card p-10 text-center text-sm text-muted-foreground">
             No payments yet.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+          <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -88,7 +88,7 @@ export default async function BillingPage() {
                       {p.id.slice(0, 8)}
                     </TableCell>
                     <TableCell>{p.provider}</TableCell>
-                    <TableCell className="font-medium text-navy-900">
+                    <TableCell className="font-medium text-foreground">
                       ${Number(p.amount).toFixed(2)}
                     </TableCell>
                     <TableCell>

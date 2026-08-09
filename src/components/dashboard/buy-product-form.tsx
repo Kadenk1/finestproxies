@@ -71,7 +71,7 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
   if (products.length === 0) return null;
 
   return (
-    <div className="grid gap-4 rounded-2xl border border-border/70 bg-white p-6 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end">
+    <div className="grid gap-4 rounded-2xl border border-border/70 bg-card p-6 sm:grid-cols-[1fr_140px_160px_auto] sm:items-end">
       <div className="space-y-1.5">
         <Label>Product</Label>
         <Select
@@ -107,7 +107,7 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
       </div>
       <div className="space-y-1.5">
         <Label>Total</Label>
-        <div className="flex h-8 items-center text-lg font-semibold text-navy-900">
+        <div className="flex h-8 items-center text-lg font-semibold text-foreground">
           ${total.toFixed(2)}
         </div>
       </div>

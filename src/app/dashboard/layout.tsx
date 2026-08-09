@@ -17,7 +17,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="flex min-h-full bg-background">
       <DashboardSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border/70 bg-white px-4 sm:px-6">
+        <header className="flex h-16 items-center justify-between border-b border-border/70 bg-card px-4 sm:px-6">
           <DashboardMobileNav />
           <div className="ml-auto flex items-center gap-3">
             <Badge variant="secondary" className="gap-1.5 py-1.5">

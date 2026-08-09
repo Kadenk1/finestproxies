@@ -50,7 +50,7 @@ export default async function AdminUsagePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Usage</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Usage</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Platform-wide bandwidth accounting across all customers.
         </p>
@@ -83,8 +83,8 @@ export default async function AdminUsagePage() {
       </Card>
 
       <div>
-        <h2 className="mb-3 text-lg font-semibold text-navy-900">Recent usage events</h2>
-        <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+        <h2 className="mb-3 text-lg font-semibold text-foreground">Recent usage events</h2>
+        <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -102,7 +102,7 @@ export default async function AdminUsagePage() {
                   <TableCell>{r.user.email}</TableCell>
                   <TableCell>{r.product.name}</TableCell>
                   <TableCell className="text-muted-foreground">{r.gateway.name}</TableCell>
-                  <TableCell className="font-medium text-navy-900">
+                  <TableCell className="font-medium text-foreground">
                     {bytesToGb(r.totalBytes).toFixed(3)} GB
                   </TableCell>
                   <TableCell>{r.requestCount}</TableCell>

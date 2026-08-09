@@ -46,7 +46,7 @@ export default async function AdminProviderDetailPage({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-navy-900">{provider.name}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{provider.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{provider.slug}</p>
         </div>
         <Badge variant={statusVariant[provider.healthStatus] ?? "secondary"}>
@@ -104,7 +104,7 @@ export default async function AdminProviderDetailPage({
           )}
           {credentials.map((cred) => (
             <div key={cred.id} className="flex items-center justify-between text-sm">
-              <span className="text-navy-900">
+              <span className="text-foreground">
                 {cred.label} <span className="text-muted-foreground">({cred.type})</span>
               </span>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">

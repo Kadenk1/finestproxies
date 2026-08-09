@@ -29,7 +29,7 @@ export default async function AdminCustomersPage({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Customers</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Customers</h1>
         <p className="mt-1 text-sm text-muted-foreground">{customers.length} customers</p>
       </div>
 
@@ -37,7 +37,7 @@ export default async function AdminCustomersPage({
         <Input name="q" defaultValue={q} placeholder="Search by email, name, or company..." />
       </form>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>

@@ -73,14 +73,14 @@ export function CredentialList({ initialRows }: { initialRows: CredentialRow[] }
 
   if (rows.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-border/70 bg-white p-10 text-center text-sm text-muted-foreground">
+      <p className="rounded-2xl border border-dashed border-border/70 bg-card p-10 text-center text-sm text-muted-foreground">
         No credentials generated yet for this product. Use the Proxy Generator to create one.
       </p>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+    <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
       <Table>
         <TableHeader>
           <TableRow>

@@ -27,11 +27,11 @@ export default async function AdminOrdersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Orders</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">Most recent 100 orders across all customers.</p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -53,7 +53,7 @@ export default async function AdminOrdersPage() {
                 <TableCell>
                   {order.items.map((i) => `${i.product.name} × ${Number(i.quantity)}`).join(", ")}
                 </TableCell>
-                <TableCell className="font-medium text-navy-900">
+                <TableCell className="font-medium text-foreground">
                   ${Number(order.total).toFixed(2)}
                 </TableCell>
                 <TableCell>

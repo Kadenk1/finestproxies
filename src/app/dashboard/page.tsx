@@ -37,7 +37,7 @@ export default async function DashboardOverviewPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">
+        <h1 className="text-2xl font-semibold text-foreground">
           Welcome back{session?.user?.name ? `, ${session.user.name}` : ""}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -130,7 +130,7 @@ export default async function DashboardOverviewPage() {
             {data.recentOrders.map((order) => (
               <div key={order.id} className="flex items-center justify-between text-sm">
                 <div>
-                  <div className="font-medium text-navy-900">
+                  <div className="font-medium text-foreground">
                     {order.items.map((i) => i.product.name).join(", ") || "Order"}
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -138,7 +138,7 @@ export default async function DashboardOverviewPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-navy-900">
+                  <span className="font-medium text-foreground">
                     ${Number(order.total).toFixed(2)}
                   </span>
                   <Badge variant={orderStatusVariant[order.status] ?? "secondary"}>
@@ -165,12 +165,12 @@ export default async function DashboardOverviewPage() {
           {data.recentUsage.map((record) => (
             <div key={record.id} className="flex items-center justify-between text-sm">
               <div>
-                <div className="font-medium text-navy-900">{record.product.name}</div>
+                <div className="font-medium text-foreground">{record.product.name}</div>
                 <div className="text-xs text-muted-foreground">
                   {record.occurredAt.toLocaleString()} · {record.requestCount} requests
                 </div>
               </div>
-              <span className="font-medium text-navy-900">
+              <span className="font-medium text-foreground">
                 {bytesToGb(record.totalBytes).toFixed(3)} GB
               </span>
             </div>

@@ -23,13 +23,13 @@ export default async function AdminCouponsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-navy-900">Coupons</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Coupons</h1>
           <p className="mt-1 text-sm text-muted-foreground">Discount codes for checkout.</p>
         </div>
         <CouponFormDialog />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -44,7 +44,7 @@ export default async function AdminCouponsPage() {
           <TableBody>
             {coupons.map((coupon) => (
               <TableRow key={coupon.id}>
-                <TableCell className="font-mono text-sm font-medium text-navy-900">
+                <TableCell className="font-mono text-sm font-medium text-foreground">
                   {coupon.code}
                 </TableCell>
                 <TableCell>

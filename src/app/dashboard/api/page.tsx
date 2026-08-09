@@ -5,17 +5,17 @@ export default function ApiPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">API</h1>
+        <h1 className="text-2xl font-semibold text-foreground">API</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Programmatic access to your account.
         </p>
       </div>
 
-      <div className="rounded-2xl border border-dashed border-border/70 bg-white p-10 text-center">
+      <div className="rounded-2xl border border-dashed border-border/70 bg-card p-10 text-center">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
           <Code2 className="h-6 w-6" />
         </div>
-        <h2 className="mt-4 text-base font-semibold text-navy-900">
+        <h2 className="mt-4 text-base font-semibold text-foreground">
           API key management is coming soon
         </h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">

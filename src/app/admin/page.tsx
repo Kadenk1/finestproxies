@@ -23,7 +23,7 @@ export default async function AdminOverviewPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Admin overview</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Admin overview</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Platform-wide KPIs across customers, revenue, and infrastructure.
         </p>
@@ -68,7 +68,7 @@ export default async function AdminOverviewPage() {
             {data.gatewayStatusCounts.map((row) => (
               <div key={row.status} className="flex items-center justify-between text-sm">
                 <Badge variant={statusVariant[row.status] ?? "secondary"}>{row.status}</Badge>
-                <span className="font-medium text-navy-900">{row._count._all}</span>
+                <span className="font-medium text-foreground">{row._count._all}</span>
               </div>
             ))}
             <Link href="/admin/gateways" className="mt-2 block text-xs text-brand-700 hover:underline">
@@ -87,7 +87,7 @@ export default async function AdminOverviewPage() {
                 <Badge variant={statusVariant[row.healthStatus] ?? "secondary"}>
                   {row.healthStatus}
                 </Badge>
-                <span className="font-medium text-navy-900">{row._count._all}</span>
+                <span className="font-medium text-foreground">{row._count._all}</span>
               </div>
             ))}
             <Link href="/admin/providers" className="mt-2 block text-xs text-brand-700 hover:underline">
@@ -133,7 +133,7 @@ export default async function AdminOverviewPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-navy-900">${Number(order.total).toFixed(2)}</span>
+                  <span className="font-medium text-foreground">${Number(order.total).toFixed(2)}</span>
                   <Badge variant={statusVariant[order.status] ?? "secondary"}>{order.status}</Badge>
                 </div>
               </div>

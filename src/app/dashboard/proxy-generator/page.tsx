@@ -30,7 +30,7 @@ export default async function ProxyGeneratorPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Proxy Generator</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Proxy Generator</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Generate credentials scoped to our gateways — never upstream
           provider credentials.

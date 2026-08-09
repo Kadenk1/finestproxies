@@ -279,7 +279,7 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
                   key={cred.id}
                   className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-secondary/40 p-3"
                 >
-                  <div className="min-w-0 flex-1 truncate font-mono text-[13px] text-navy-800">
+                  <div className="min-w-0 flex-1 truncate font-mono text-[13px] text-foreground">
                     {formatCredential(cred, format)}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">

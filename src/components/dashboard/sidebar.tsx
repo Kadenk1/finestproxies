@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { Logo } from "@/components/shared/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const proxyLinks = [
   { href: "/dashboard/proxies/residential", label: "Residential", icon: Users },
@@ -57,8 +58,8 @@ function NavLink({
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
         active
-          ? "bg-brand-50 text-brand-700"
-          : "text-navy-600 hover:bg-secondary hover:text-navy-900",
+          ? "bg-secondary text-secondary-foreground"
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -89,8 +90,8 @@ export function DashboardNavLinks({ onNavigate }: { onNavigate?: () => void }) {
           className={cn(
             "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors",
             pathname.startsWith("/dashboard/proxies")
-              ? "text-brand-700"
-              : "text-navy-600 hover:bg-secondary hover:text-navy-900",
+              ? "text-secondary-foreground"
+              : "text-muted-foreground hover:bg-secondary hover:text-foreground",
           )}
         >
           <span className="flex items-center gap-2.5">
@@ -111,8 +112,8 @@ export function DashboardNavLinks({ onNavigate }: { onNavigate?: () => void }) {
                 className={cn(
                   "block rounded-lg px-3 py-1.5 text-sm transition-colors",
                   pathname === link.href
-                    ? "bg-brand-50 font-medium text-brand-700"
-                    : "text-navy-400 hover:bg-secondary hover:text-navy-900",
+                    ? "bg-secondary font-medium text-secondary-foreground"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
                 )}
               >
                 {link.label}
@@ -138,17 +139,18 @@ export function DashboardNavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 export function DashboardSidebar() {
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-border/70 bg-white lg:flex">
-      <div className="flex h-16 items-center gap-2 border-b border-border/70 px-5">
+    <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+      <div className="flex h-16 items-center justify-between gap-2 border-b border-sidebar-border px-5">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <Logo className="h-8 w-8" />
-          <span className="text-[15px] tracking-tight text-navy-900">{brand.name}</span>
+          <span className="text-[15px] tracking-tight text-sidebar-foreground">{brand.name}</span>
         </Link>
+        <ThemeToggle className="text-muted-foreground hover:text-foreground" />
       </div>
 
       <DashboardNavLinks />
 
-      <div className="border-t border-border/70 p-3">
+      <div className="border-t border-sidebar-border p-3">
         <SignOutButton />
       </div>
     </aside>

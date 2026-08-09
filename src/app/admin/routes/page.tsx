@@ -25,7 +25,7 @@ export default async function AdminRoutesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-navy-900">Routes</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Routes</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Which gateway serves which product using which upstream provider. The
             routing engine (Phase 4) reads these to build its candidate set.
@@ -38,7 +38,7 @@ export default async function AdminRoutesPage() {
         />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -53,7 +53,7 @@ export default async function AdminRoutesPage() {
           <TableBody>
             {routes.map((route) => (
               <TableRow key={route.id}>
-                <TableCell className="font-medium text-navy-900">{route.product.name}</TableCell>
+                <TableCell className="font-medium text-foreground">{route.product.name}</TableCell>
                 <TableCell>{route.gateway.name}</TableCell>
                 <TableCell>{route.provider.name}</TableCell>
                 <TableCell>{route.priority}</TableCell>

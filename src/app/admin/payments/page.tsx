@@ -26,13 +26,13 @@ export default async function AdminPaymentsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Payments</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Payments</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Most recent 100 payments. All payments in development run through the mock provider.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -52,7 +52,7 @@ export default async function AdminPaymentsPage() {
                 </TableCell>
                 <TableCell>{payment.order.user.email}</TableCell>
                 <TableCell>{payment.provider}</TableCell>
-                <TableCell className="font-medium text-navy-900">
+                <TableCell className="font-medium text-foreground">
                   ${Number(payment.amount).toFixed(2)}
                 </TableCell>
                 <TableCell>

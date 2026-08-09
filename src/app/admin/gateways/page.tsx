@@ -34,7 +34,7 @@ export default async function AdminGatewaysPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-navy-900">Gateways</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Gateways</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Infrastructure we operate that customers connect through.
           </p>
@@ -42,7 +42,7 @@ export default async function AdminGatewaysPage() {
         <GatewayFormDialog />
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-x-auto rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -63,7 +63,7 @@ export default async function AdminGatewaysPage() {
             {gateways.map((gateway) => (
               <TableRow key={gateway.id}>
                 <TableCell>
-                  <div className="font-medium text-navy-900">{gateway.name}</div>
+                  <div className="font-medium text-foreground">{gateway.name}</div>
                   <div className="text-xs text-muted-foreground">{gateway.hostname}</div>
                 </TableCell>
                 <TableCell>

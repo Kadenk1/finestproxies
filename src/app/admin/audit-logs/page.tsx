@@ -19,13 +19,13 @@ export default async function AdminAuditLogsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Audit logs</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Audit logs</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Most recent 200 sensitive admin actions.
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>

@@ -27,7 +27,7 @@ export default async function AdminProductsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-navy-900">Products</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Products</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Create and manage products without touching code.
           </p>
@@ -35,7 +35,7 @@ export default async function AdminProductsPage() {
         <ProductFormDialog />
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>
@@ -57,7 +57,7 @@ export default async function AdminProductsPage() {
               return (
                 <TableRow key={product.id}>
                   <TableCell>
-                    <div className="font-medium text-navy-900">{product.name}</div>
+                    <div className="font-medium text-foreground">{product.name}</div>
                     <div className="text-xs text-muted-foreground">{product.slug}</div>
                   </TableCell>
                   <TableCell>{product.type}</TableCell>

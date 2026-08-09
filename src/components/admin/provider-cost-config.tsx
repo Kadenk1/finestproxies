@@ -80,7 +80,7 @@ export function ProviderCostConfig({
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.productId}>
-            <TableCell className="font-medium text-navy-900">{row.productName}</TableCell>
+            <TableCell className="font-medium text-foreground">{row.productName}</TableCell>
             <TableCell>
               <Input
                 type="number"

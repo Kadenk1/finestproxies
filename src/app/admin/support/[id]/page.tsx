@@ -24,7 +24,7 @@ export default async function AdminSupportTicketPage({
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-navy-900">{ticket.subject}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">{ticket.subject}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{ticket.user.email}</p>
         </div>
         <TicketStatusSelect ticketId={ticket.id} status={ticket.status} />
@@ -39,8 +39,8 @@ export default async function AdminSupportTicketPage({
               className={cn(
                 "max-w-[80%] rounded-2xl border p-4 text-sm",
                 isCustomer
-                  ? "border-border/70 bg-white text-navy-800"
-                  : "ml-auto border-brand-200 bg-brand-50 text-navy-900",
+                  ? "border-border/70 bg-card text-foreground"
+                  : "ml-auto border-brand-200 bg-brand-50 text-foreground",
               )}
             >
               <div className="mb-1 text-xs font-medium text-muted-foreground">

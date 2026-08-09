@@ -31,7 +31,7 @@ export default async function SupportTicketPage({
   return (
     <div className="max-w-2xl space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-navy-900">{ticket.subject}</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{ticket.subject}</h1>
         <Badge variant={statusVariant[ticket.status] ?? "secondary"}>{ticket.status}</Badge>
       </div>
 
@@ -44,8 +44,8 @@ export default async function SupportTicketPage({
               className={cn(
                 "max-w-[80%] rounded-2xl border p-4 text-sm",
                 isMe
-                  ? "ml-auto border-brand-200 bg-brand-50 text-navy-900"
-                  : "border-border/70 bg-white text-navy-800",
+                  ? "ml-auto border-brand-200 bg-brand-50 text-foreground"
+                  : "border-border/70 bg-card text-foreground",
               )}
             >
               <div className="mb-1 text-xs font-medium text-muted-foreground">

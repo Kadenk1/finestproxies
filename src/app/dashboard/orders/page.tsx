@@ -42,7 +42,7 @@ export default async function OrdersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Orders</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Orders</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Buy bandwidth or IP allocations and review your order history.
         </p>
@@ -51,11 +51,11 @@ export default async function OrdersPage() {
       <BuyProductForm products={buyable} />
 
       {orders.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-border/70 bg-white p-10 text-center text-sm text-muted-foreground">
+        <p className="rounded-2xl border border-dashed border-border/70 bg-card p-10 text-center text-sm text-muted-foreground">
           No orders yet.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+        <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -77,7 +77,7 @@ export default async function OrdersPage() {
                       .map((i) => `${i.product.name} × ${Number(i.quantity)}`)
                       .join(", ")}
                   </TableCell>
-                  <TableCell className="font-medium text-navy-900">
+                  <TableCell className="font-medium text-foreground">
                     ${Number(order.total).toFixed(2)}
                   </TableCell>
                   <TableCell>

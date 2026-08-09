@@ -22,7 +22,7 @@ export function DashboardMobileNav() {
         <SheetTitle className="sr-only">Dashboard navigation</SheetTitle>
         <div className="flex h-16 items-center gap-2 border-b border-border/70 px-5">
           <Logo className="h-8 w-8" />
-          <span className="text-[15px] tracking-tight text-navy-900">{brand.name}</span>
+          <span className="text-[15px] tracking-tight text-foreground">{brand.name}</span>
         </div>
         <DashboardNavLinks onNavigate={() => setOpen(false)} />
       </SheetContent>

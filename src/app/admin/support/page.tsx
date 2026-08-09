@@ -26,11 +26,11 @@ export default async function AdminSupportPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-navy-900">Support</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Support</h1>
         <p className="mt-1 text-sm text-muted-foreground">{tickets.length} tickets</p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border/70 bg-white">
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
         <Table>
           <TableHeader>
             <TableRow>

@@ -10,7 +10,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     <div className="flex min-h-full bg-background">
       <AdminSidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-border/70 bg-white px-4 sm:px-6">
+        <header className="flex h-16 items-center justify-between border-b border-border/70 bg-card px-4 sm:px-6">
           <AdminMobileNav />
           <span className="ml-auto text-sm text-muted-foreground">{session?.user?.email}</span>
         </header>
