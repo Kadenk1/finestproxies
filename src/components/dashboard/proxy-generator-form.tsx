@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Copy, Check, Download, RefreshCw, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   formatCredential,
   formatLabels,
@@ -25,7 +25,7 @@ interface ProductCatalogEntry {
   slug: string;
   name: string;
   hasBalance: boolean;
-  locations: { country: string }[];
+  locations: { country: string; region: string | null; city: string | null }[];
 }
 
 interface GeneratedCredential {
@@ -39,13 +39,26 @@ interface GeneratedCredential {
   country: string | null;
 }
 
+// sessionType + duration collapsed into one control — "how often does the
+// exit IP change" is one decision for the customer, even though it's two
+// fields underneath.
+const ipSwitchOptions = [
+  { value: "rotating", label: "Rotating — new IP every request", sessionType: "ROTATING" as const, minutes: undefined },
+  { value: "sticky-1", label: "Sticky — 1 minute", sessionType: "STICKY" as const, minutes: 1 },
+  { value: "sticky-5", label: "Sticky — 5 minutes", sessionType: "STICKY" as const, minutes: 5 },
+  { value: "sticky-10", label: "Sticky — 10 minutes", sessionType: "STICKY" as const, minutes: 10 },
+  { value: "sticky-30", label: "Sticky — 30 minutes", sessionType: "STICKY" as const, minutes: 30 },
+  { value: "sticky-60", label: "Sticky — 60 minutes", sessionType: "STICKY" as const, minutes: 60 },
+];
+
 export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry[] }) {
   const purchasable = products.filter((p) => p.hasBalance);
   const [productSlug, setProductSlug] = useState(purchasable[0]?.slug ?? "");
   const [country, setCountry] = useState<string>("any");
-  const [protocol, setProtocol] = useState<"HTTP" | "HTTPS" | "SOCKS5">("HTTP");
-  const [sessionType, setSessionType] = useState<"ROTATING" | "STICKY">("ROTATING");
-  const [sessionDurationMins, setSessionDurationMins] = useState(10);
+  const [region, setRegion] = useState<string>("any");
+  const [city, setCity] = useState<string>("any");
+  const [protocol, setProtocol] = useState<"HTTP" | "HTTPS">("HTTP");
+  const [ipSwitch, setIpSwitch] = useState(ipSwitchOptions[0].value);
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<GeneratedCredential[]>([]);
@@ -53,13 +66,35 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const activeProduct = products.find((p) => p.slug === productSlug);
-  const formatOptions = useMemo(
+  const countries = useMemo(
+    () => Array.from(new Set(activeProduct?.locations.map((l) => l.country) ?? [])),
+    [activeProduct],
+  );
+  const regions = useMemo(
     () =>
-      [
-        "HOST_PORT_USER_PASS",
-        "USER_PASS_HOST_PORT",
-        "URL",
-      ] as ProxyOutputFormat[],
+      Array.from(
+        new Set(
+          activeProduct?.locations
+            .filter((l) => (country === "any" ? true : l.country === country) && l.region)
+            .map((l) => l.region as string) ?? [],
+        ),
+      ),
+    [activeProduct, country],
+  );
+  const cities = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activeProduct?.locations
+            .filter((l) => (country === "any" ? true : l.country === country) && l.city)
+            .map((l) => l.city as string) ?? [],
+        ),
+      ),
+    [activeProduct, country],
+  );
+
+  const formatOptions = useMemo(
+    () => ["HOST_PORT_USER_PASS", "USER_PASS_HOST_PORT", "URL"] as ProxyOutputFormat[],
     [],
   );
 
@@ -68,6 +103,7 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
       toast.error("Purchase a product before generating credentials.");
       return;
     }
+    const selectedSwitch = ipSwitchOptions.find((o) => o.value === ipSwitch)!;
     setSubmitting(true);
     try {
       const res = await fetch("/api/dashboard/proxies", {
@@ -76,9 +112,11 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
         body: JSON.stringify({
           productSlug,
           country: country === "any" ? undefined : country,
+          region: region === "any" ? undefined : region,
+          city: city === "any" ? undefined : city,
           protocol,
-          sessionType,
-          sessionDurationMins: sessionType === "STICKY" ? sessionDurationMins : undefined,
+          sessionType: selectedSwitch.sessionType,
+          sessionDurationMins: selectedSwitch.minutes,
           quantity,
         }),
       });
@@ -145,7 +183,11 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
     <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
       <Card>
         <CardHeader>
-          <CardTitle>Generate credentials</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Wand2 className="h-4.5 w-4.5 text-primary" />
+            Proxy Generator
+          </CardTitle>
+          <CardDescription>Configure and generate your proxy credentials.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-1.5">
@@ -171,75 +213,128 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
 
           <div className="space-y-1.5">
             <Label>Country</Label>
-            <Select value={country} onValueChange={(v) => v && setCountry(v)}>
+            <Select
+              value={country}
+              onValueChange={(v) => {
+                if (!v) return;
+                setCountry(v);
+                setRegion("any");
+                setCity("any");
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Any country" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="any">Any country</SelectItem>
-                {activeProduct?.locations.map((loc) => (
-                  <SelectItem key={loc.country} value={loc.country}>
-                    {loc.country}
+                {countries.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              State/city targeting isn&apos;t available for this product yet.
-            </p>
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>State</Label>
+              <Select value={region} onValueChange={(v) => v && setRegion(v)} disabled={regions.length === 0}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Any state" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any state</SelectItem>
+                  {regions.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>City</Label>
+              <Select value={city} onValueChange={(v) => v && setCity(v)} disabled={cities.length === 0}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Any city" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any city</SelectItem>
+                  {cities.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {regions.length === 0 && cities.length === 0 && (
+            <p className="-mt-3 text-xs text-muted-foreground">
+              State/city targeting isn&apos;t configured for this product yet.
+            </p>
+          )}
 
           <div className="space-y-1.5">
             <Label>Protocol</Label>
-            <Select value={protocol} onValueChange={(v) => setProtocol(v as typeof protocol)}>
+            <Select value={protocol} onValueChange={(v) => v && setProtocol(v as typeof protocol)}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="HTTP">HTTP</SelectItem>
                 <SelectItem value="HTTPS">HTTPS</SelectItem>
-                <SelectItem value="SOCKS5">SOCKS5</SelectItem>
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">SOCKS5 support is coming soon.</p>
           </div>
 
           <div className="space-y-1.5">
-            <Label>Session type</Label>
-            <Select
-              value={sessionType}
-              onValueChange={(v) => setSessionType(v as typeof sessionType)}
-            >
+            <Label>IP Switch Time</Label>
+            <Select value={ipSwitch} onValueChange={(v) => v && setIpSwitch(v)}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ROTATING">Rotating</SelectItem>
-                <SelectItem value="STICKY">Sticky</SelectItem>
+                {ipSwitchOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
-          {sessionType === "STICKY" && (
-            <div className="space-y-1.5">
-              <Label>Session duration (minutes)</Label>
-              <Input
-                type="number"
-                min={1}
-                max={1440}
-                value={sessionDurationMins}
-                onChange={(e) => setSessionDurationMins(Number(e.target.value))}
-              />
-            </div>
-          )}
-
           <div className="space-y-1.5">
-            <Label>Quantity (up to 5,000)</Label>
-            <Input
-              type="number"
+            <Label>Generate Type</Label>
+            <Select value={format} onValueChange={(v) => v && setFormat(v as ProxyOutputFormat)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {formatOptions.map((f) => (
+                  <SelectItem key={f} value={f}>
+                    {f === "URL" ? urlFormatLabel(protocol) : formatLabels[f]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Quantity</Label>
+              <span className="text-sm font-medium text-foreground">
+                {quantity.toLocaleString()}
+              </span>
+            </div>
+            <Slider
               min={1}
               max={5000}
-              value={quantity}
-              onChange={(e) => setQuantity(Number(e.target.value))}
+              step={1}
+              value={[quantity]}
+              onValueChange={(v) => setQuantity(Array.isArray(v) ? v[0] : v)}
             />
           </div>
 
@@ -259,24 +354,10 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
           <CardTitle>Generated credentials</CardTitle>
           {results.length > 0 && (
             <div className="flex items-center gap-2">
-              <Select value={format} onValueChange={(v) => setFormat(v as ProxyOutputFormat)}>
-                <SelectTrigger size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {formatOptions.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f === "URL" ? urlFormatLabel(results[0].protocol) : formatLabels[f]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {isBulkResult && (
-                <Button variant="outline" size="sm" onClick={copyAll}>
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy all
-                </Button>
-              )}
+              <Button variant="outline" size="sm" onClick={copyAll}>
+                <Copy className="h-3.5 w-3.5" />
+                Copy all
+              </Button>
               <Button variant="outline" size="sm" onClick={downloadAll}>
                 <Download className="h-3.5 w-3.5" />
                 Download .txt

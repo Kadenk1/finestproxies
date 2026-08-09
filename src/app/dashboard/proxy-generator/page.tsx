@@ -23,7 +23,11 @@ export default async function ProxyGeneratorPage() {
       slug: p.slug,
       name: p.name,
       hasBalance,
-      locations: p.locations.map((l) => ({ country: l.country })),
+      locations: p.locations.map((l) => ({
+        country: l.country,
+        region: l.region,
+        city: l.city,
+      })),
     };
   });
 
