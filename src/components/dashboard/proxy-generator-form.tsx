@@ -58,7 +58,10 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
   const [country, setCountry] = useState<string>("any");
   const [region, setRegion] = useState<string>("any");
   const [city, setCity] = useState<string>("any");
-  const [protocol, setProtocol] = useState<"HTTP" | "HTTPS">("HTTP");
+  // Fixed, not user-configurable — the forwarding daemon only speaks
+  // HTTP/HTTPS via CONNECT tunneling today, and HTTP already covers both
+  // (the CONNECT tunnel is what actually carries HTTPS traffic).
+  const protocol = "HTTP" as const;
   const [ipSwitch, setIpSwitch] = useState(ipSwitchOptions[0].value);
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -284,20 +287,6 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
               State/city targeting isn&apos;t configured for this product yet.
             </p>
           )}
-
-          <div className="space-y-1.5">
-            <Label>Protocol</Label>
-            <Select value={protocol} onValueChange={(v) => v && setProtocol(v as typeof protocol)}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="HTTP">HTTP</SelectItem>
-                <SelectItem value="HTTPS">HTTPS</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">SOCKS5 support is coming soon.</p>
-          </div>
 
           <div className="space-y-1.5">
             <Label>IP Switch Time</Label>
