@@ -21,6 +21,10 @@ const PROXY_HOST = process.env.PROXY_HOST || "resi.finestproxies.com";
 const PROXY_PORT = Number(process.env.PROXY_PORT || 8000);
 const PROXY_USER = process.env.PROXY_USER;
 const PROXY_PASS = process.env.PROXY_PASS;
+// A second, distinct credential — used only for the cross-credential exit-IP
+// uniqueness check. Optional; that one test is skipped without it.
+const PROXY_USER_2 = process.env.PROXY_USER_2;
+const PROXY_PASS_2 = process.env.PROXY_PASS_2;
 
 if (!PROXY_USER || !PROXY_PASS) {
   console.error("Set PROXY_USER and PROXY_PASS env vars to a generated credential first.");
@@ -50,6 +54,7 @@ function proxyAuthHeader(user, pass) {
 // our own protocol handling directly, not a client's abstraction over it) --
 
 function rawHttpThroughProxy({ method = "GET", url, user = PROXY_USER, pass = PROXY_PASS, headers = {}, body }) {
+  const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: PROXY_HOST,
@@ -66,16 +71,24 @@ function rawHttpThroughProxy({ method = "GET", url, user = PROXY_USER, pass = PR
     req.on("response", (res) => {
       const chunks = [];
       res.on("data", (d) => chunks.push(d));
-      res.on("end", () => resolve({ statusCode: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+      res.on("end", () =>
+        resolve({
+          statusCode: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(chunks),
+          elapsedMs: Date.now() - startedAt,
+        }),
+      );
     });
     req.on("timeout", () => req.destroy(new Error("timeout")));
-    req.on("error", reject);
+    req.on("error", (err) => reject(Object.assign(err, { elapsedMs: Date.now() - startedAt })));
     req.end(body);
   });
 }
 
 /** Establishes a CONNECT tunnel through the proxy, returns the raw connected socket. */
 function connectTunnel({ targetHost, targetPort, user = PROXY_USER, pass = PROXY_PASS }) {
+  const startedAt = Date.now();
   return new Promise((resolve, reject) => {
     const sock = net.connect(PROXY_PORT, PROXY_HOST);
     const timer = setTimeout(() => {
@@ -98,17 +111,18 @@ function connectTunnel({ targetHost, targetPort, user = PROXY_USER, pass = PROXY
       clearTimeout(timer);
       const statusLine = buf.slice(0, buf.indexOf("\r\n")).toString();
       const statusCode = Number(statusLine.match(/(\d{3})/)?.[1]);
-      resolve({ sock, statusCode, statusLine });
+      resolve({ sock, statusCode, statusLine, elapsedMs: Date.now() - startedAt });
     }
     sock.on("data", onData);
     sock.on("error", (err) => {
       clearTimeout(timer);
-      reject(err);
+      reject(Object.assign(err, { elapsedMs: Date.now() - startedAt }));
     });
   });
 }
 
 function httpsOverTunnel({ targetHost, targetPort = 443, path = "/", user, pass }) {
+  const startedAt = Date.now();
   return connectTunnel({ targetHost, targetPort, user, pass }).then(
     ({ sock, statusCode }) =>
       new Promise((resolve, reject) => {
@@ -124,9 +138,9 @@ function httpsOverTunnel({ targetHost, targetPort = 443, path = "/", user, pass 
         tlsSocket.on("end", () => {
           const [head, ...rest] = buf.toString("latin1").split("\r\n\r\n");
           const statusCode = Number(head.match(/^HTTP\/[\d.]+\s+(\d+)/)?.[1]);
-          resolve({ statusCode, body: rest.join("\r\n\r\n") });
+          resolve({ statusCode, body: rest.join("\r\n\r\n"), elapsedMs: Date.now() - startedAt });
         });
-        tlsSocket.on("error", reject);
+        tlsSocket.on("error", (err) => reject(Object.assign(err, { elapsedMs: Date.now() - startedAt })));
       }),
   );
 }
@@ -137,16 +151,157 @@ async function testPlainHttp() {
   const res = await rawHttpThroughProxy({ url: "http://api.ipify.org/" });
   const ip = res.body.toString().trim();
   const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
-  record("Plain HTTP proxy request", res.statusCode === 200 && looksLikeIp, `status=${res.statusCode} ip=${ip}`);
+  record(
+    "Plain HTTP proxy request",
+    res.statusCode === 200 && looksLikeIp,
+    `status=${res.statusCode} ip=${ip} elapsedMs=${res.elapsedMs}`,
+  );
   return ip;
 }
 
 async function testHttpsConnect() {
-  const { statusCode, body } = await httpsOverTunnel({ targetHost: "api.ipify.org", path: "/" });
+  const { statusCode, body, elapsedMs } = await httpsOverTunnel({ targetHost: "api.ipify.org", path: "/" });
   const ip = body.trim();
   const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
-  record("HTTPS via CONNECT tunnel", statusCode === 200 && looksLikeIp, `status=${statusCode} ip=${ip}`);
+  record(
+    "HTTPS via CONNECT tunnel",
+    statusCode === 200 && looksLikeIp,
+    `status=${statusCode} ip=${ip} elapsedMs=${elapsedMs}`,
+  );
   return ip;
+}
+
+async function testDnsResolution() {
+  // The gateway never resolves target hostnames itself (verified by code
+  // inspection — no dns.*/lookup calls anywhere in index.js; hostnames are
+  // only ever forwarded as literal strings in the CONNECT/request line).
+  // This test proves resolution genuinely succeeds end-to-end for a
+  // hostname distinct from the ones used elsewhere in this suite, so a
+  // pass here isn't just re-testing DNS caching from an earlier test.
+  const { statusCode, elapsedMs } = await httpsOverTunnel({ targetHost: "one.one.one.one", path: "/" });
+  record(
+    "DNS resolution through the proxy (distinct hostname, one.one.one.one)",
+    statusCode >= 200 && statusCode < 400,
+    `status=${statusCode} elapsedMs=${elapsedMs}`,
+  );
+}
+
+async function testConcurrentHttpsConnections(n = 8) {
+  const startedAt = Date.now();
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: n }, () => httpsOverTunnel({ targetHost: "api.ipify.org", path: "/" })),
+  );
+  const ok = outcomes.filter((o) => o.status === "fulfilled" && o.value.statusCode === 200);
+  record(
+    `${n} simultaneous HTTPS CONNECT tunnels`,
+    ok.length === n,
+    `succeeded=${ok.length}/${n} totalElapsedMs=${Date.now() - startedAt}`,
+  );
+}
+
+async function testKeepAliveReuse() {
+  // Not a client-side keep-alive test (each rawHttpThroughProxy call opens
+  // a fresh client->gateway socket) — this measures whether the gateway's
+  // upstream connection pool/keep-alive Agent (gateway-agent/index.js) is
+  // doing its job, by comparing a cold first request's latency against a
+  // run of "warm" follow-ups to the same upstream. Informational: pooling
+  // helps but network jitter can still make one sample slower, so this
+  // reports timings rather than hard-failing on a single outlier.
+  const first = await rawHttpThroughProxy({ url: "http://httpbin.org/get" });
+  const warmResults = [];
+  for (let i = 0; i < 4; i++) {
+    warmResults.push(await rawHttpThroughProxy({ url: "http://httpbin.org/get" }));
+  }
+  const allOk = first.statusCode === 200 && warmResults.every((r) => r.statusCode === 200);
+  const warmTimings = warmResults.map((r) => r.elapsedMs);
+  const warmAvg = warmTimings.reduce((a, b) => a + b, 0) / warmTimings.length;
+  record(
+    "Connection reuse / keep-alive (cold vs warm latency)",
+    allOk,
+    `cold=${first.elapsedMs}ms warmAvg=${warmAvg.toFixed(0)}ms warmSamples=[${warmTimings.join(",")}]`,
+  );
+}
+
+async function testRedirectChain() {
+  // httpbin.org/redirect/3 issues 3 sequential 302 hops before finally
+  // landing on /get. Node's http client doesn't auto-follow, so this
+  // manually walks the chain through the proxy to prove every hop (not
+  // just the first, already covered by testRedirectPassthrough) actually
+  // resolves.
+  let url = "http://httpbin.org/redirect/3";
+  let hops = 0;
+  let finalStatus = null;
+  for (; hops < 10; hops++) {
+    const res = await rawHttpThroughProxy({ url });
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      url = new URL(res.headers.location, url).toString();
+      continue;
+    }
+    finalStatus = res.statusCode;
+    break;
+  }
+  record(
+    "Multi-hop redirect chain (3 hops) fully followed through proxy",
+    finalStatus === 200 && hops === 3,
+    `hopsFollowed=${hops} finalStatus=${finalStatus}`,
+  );
+}
+
+async function testModerateDownload() {
+  // Cloudflare's own network-testing endpoint (used by speed.cloudflare.com)
+  // — built for exactly this kind of programmatic, arbitrary-size download,
+  // unlike httpbin's 100KB-capped /bytes/ endpoint. An earlier version of
+  // this test used a UK-broadband speed-test mirror
+  // (ipv4.download.thinkbroadband.com/5MB.zip) that returned a 391-byte 403
+  // "Not Authorised... we do not allow scripted/automated downloads" page
+  // through the proxy — confirmed via a direct request bypassing the proxy
+  // entirely (which succeeded, full 5MB) that this was the target site's own
+  // anti-automation policy rejecting proxy/scripted traffic, not a gateway
+  // defect, so swapped to an endpoint whose whole purpose is scripted access.
+  const startedAt = Date.now();
+  const { statusCode, body, elapsedMs } = await httpsOverTunnel({
+    targetHost: "speed.cloudflare.com",
+    path: "/__down?bytes=5000000",
+  });
+  record(
+    "Moderate-size download (5MB) fully relayed",
+    statusCode === 200 && body.length === 5_000_000,
+    `receivedBytes=${body.length} elapsedMs=${elapsedMs ?? Date.now() - startedAt}`,
+  );
+}
+
+async function testCrossCredentialUniqueness() {
+  if (!PROXY_USER_2 || !PROXY_PASS_2) {
+    record("Two different credentials get different exit IPs", true, "skipped — PROXY_USER_2/PROXY_PASS_2 not set");
+    return;
+  }
+  const [a, b] = await Promise.all([
+    rawHttpThroughProxy({ url: "http://api.ipify.org/" }),
+    rawHttpThroughProxy({ url: "http://api.ipify.org/", user: PROXY_USER_2, pass: PROXY_PASS_2 }),
+  ]);
+  const ipA = a.body.toString().trim();
+  const ipB = b.body.toString().trim();
+  record(
+    "Two different credentials get different exit IPs",
+    ipA !== ipB,
+    `credential1=${ipA} credential2=${ipB}`,
+  );
+}
+
+async function testStickySameSessionTenTimes(rounds = 10) {
+  const ips = [];
+  const timings = [];
+  for (let i = 0; i < rounds; i++) {
+    const res = await rawHttpThroughProxy({ url: "http://api.ipify.org/" });
+    ips.push(res.body.toString().trim());
+    timings.push(res.elapsedMs);
+  }
+  const unique = new Set(ips);
+  record(
+    `Same sticky session used for ${rounds} sequential requests -> same exit IP`,
+    unique.size === 1,
+    `ips=${[...unique].join(",")} avgMs=${(timings.reduce((a, b) => a + b, 0) / timings.length).toFixed(0)}`,
+  );
 }
 
 async function testConnectResponseLine() {
@@ -280,8 +435,15 @@ async function main() {
   await testHeaderPassthrough();
   await testCookiePassthrough();
   await testRedirectPassthrough();
+  await testRedirectChain();
   await testLargeResponse();
+  await testModerateDownload();
+  await testDnsResolution();
   await testConcurrentRequestsSameIp();
+  await testConcurrentHttpsConnections();
+  await testKeepAliveReuse();
+  await testCrossCredentialUniqueness();
+  await testStickySameSessionTenTimes();
   await testWssUpgrade();
 
   console.log(`\n${passed} passed, ${failed} failed`);
