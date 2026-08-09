@@ -95,7 +95,9 @@ export function PlanFormDialog({ products, plan }: PlanFormDialogProps) {
               render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: string) => products.find((p) => p.id === v)?.name ?? v}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {products.map((p) => (
@@ -130,7 +132,11 @@ export function PlanFormDialog({ products, plan }: PlanFormDialogProps) {
               render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: string) =>
+                        ({ MONTHLY: "Monthly", QUARTERLY: "Quarterly", ANNUAL: "Annual" })[v] ?? v
+                      }
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="MONTHLY">Monthly</SelectItem>

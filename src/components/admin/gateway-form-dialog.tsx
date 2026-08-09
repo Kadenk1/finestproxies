@@ -113,7 +113,9 @@ export function GatewayFormDialog({ gateway }: GatewayFormDialogProps) {
               render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: string) => v.charAt(0) + v.slice(1).toLowerCase()}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="HEALTHY">Healthy</SelectItem>

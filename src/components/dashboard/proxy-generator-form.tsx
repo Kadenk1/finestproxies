@@ -194,7 +194,9 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
             <Label>Product</Label>
             <Select value={productSlug} onValueChange={(v) => v && setProductSlug(v)}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a product" />
+                <SelectValue placeholder="Select a product">
+                  {(v: string) => products.find((p) => p.slug === v)?.name ?? v}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {products.map((p) => (
@@ -223,7 +225,9 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
               }}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Any country" />
+                <SelectValue placeholder="Any country">
+                  {(v: string) => (v === "any" ? "Any country" : v)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="any">Any country</SelectItem>
@@ -241,7 +245,9 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
               <Label>State</Label>
               <Select value={region} onValueChange={(v) => v && setRegion(v)} disabled={regions.length === 0}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Any state" />
+                  <SelectValue placeholder="Any state">
+                    {(v: string) => (v === "any" ? "Any state" : v)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any state</SelectItem>
@@ -257,7 +263,9 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
               <Label>City</Label>
               <Select value={city} onValueChange={(v) => v && setCity(v)} disabled={cities.length === 0}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Any city" />
+                  <SelectValue placeholder="Any city">
+                    {(v: string) => (v === "any" ? "Any city" : v)}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any city</SelectItem>
@@ -294,7 +302,9 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
             <Label>IP Switch Time</Label>
             <Select value={ipSwitch} onValueChange={(v) => v && setIpSwitch(v)}>
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue>
+                  {(v: string) => ipSwitchOptions.find((o) => o.value === v)?.label ?? v}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {ipSwitchOptions.map((o) => (
@@ -310,7 +320,9 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
             <Label>Generate Type</Label>
             <Select value={format} onValueChange={(v) => v && setFormat(v as ProxyOutputFormat)}>
               <SelectTrigger className="w-full">
-                <SelectValue />
+                <SelectValue>
+                  {(v: ProxyOutputFormat) => (v === "URL" ? urlFormatLabel(protocol) : formatLabels[v])}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {formatOptions.map((f) => (

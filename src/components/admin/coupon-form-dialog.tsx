@@ -97,7 +97,13 @@ export function CouponFormDialog({ coupon }: CouponFormDialogProps) {
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue>
+                        {(v: string) =>
+                          ({ PERCENT: "Percent off", FIXED_AMOUNT: "Fixed amount off", FREE_GB: "Free GB" })[
+                            v
+                          ] ?? v
+                        }
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="PERCENT">Percent off</SelectItem>

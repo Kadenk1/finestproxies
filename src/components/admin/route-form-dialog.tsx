@@ -101,7 +101,9 @@ export function RouteFormDialog({
               render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: string) => gateways.find((g) => g.id === v)?.name ?? v}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {gateways.map((g) => (
@@ -122,7 +124,9 @@ export function RouteFormDialog({
               render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: string) => providers.find((p) => p.id === v)?.name ?? v}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {providers.map((p) => (
@@ -143,7 +147,9 @@ export function RouteFormDialog({
               render={({ field }) => (
                 <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      {(v: string) => products.find((p) => p.id === v)?.name ?? v}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {products.map((p) => (

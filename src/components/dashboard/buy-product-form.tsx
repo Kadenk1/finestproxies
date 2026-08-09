@@ -92,7 +92,14 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
             }}
           >
             <SelectTrigger className="w-full">
-              <SelectValue />
+              <SelectValue>
+                {(v: string) => {
+                  const p = products.find((x) => x.id === v);
+                  return p
+                    ? `${p.name} — $${p.retailPrice.toFixed(2)}/${unitNoun[p.billingUnit].replace(/s$/, "")}`
+                    : v;
+                }}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {products.map((p) => (

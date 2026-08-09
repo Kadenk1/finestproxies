@@ -139,7 +139,11 @@ export function ProductFormDialog({ product }: ProductFormDialogProps) {
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue>
+                        {(v: string) =>
+                          ({ RESIDENTIAL: "Residential", ISP: "ISP", MOBILE: "Mobile" })[v] ?? v
+                        }
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="RESIDENTIAL">Residential</SelectItem>
@@ -158,7 +162,16 @@ export function ProductFormDialog({ product }: ProductFormDialogProps) {
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={(v) => v && field.onChange(v)}>
                     <SelectTrigger className="w-full">
-                      <SelectValue />
+                      <SelectValue>
+                        {(v: string) =>
+                          ({
+                            GB: "GB",
+                            IP_MONTH: "IP / month",
+                            PORT_MONTH: "Port / month",
+                            FLAT: "Flat",
+                          })[v] ?? v
+                        }
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="GB">GB</SelectItem>

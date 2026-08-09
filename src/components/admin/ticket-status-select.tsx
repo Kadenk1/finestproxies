@@ -36,7 +36,9 @@ export function TicketStatusSelect({
   return (
     <Select value={status} onValueChange={handleChange}>
       <SelectTrigger size="sm">
-        <SelectValue />
+        <SelectValue>
+          {(v: string) => v.charAt(0) + v.slice(1).toLowerCase()}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="OPEN">Open</SelectItem>
