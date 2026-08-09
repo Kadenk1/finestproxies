@@ -1,45 +1,12 @@
 export function Logo({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 460 460"
-      className={className}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    // eslint-disable-next-line @next/next/no-img-element -- plain <img>: no next/image optimization pipeline configured for this project
+    <img
+      src="/brand/logo-512.png"
+      alt=""
       aria-hidden="true"
-    >
-      <defs>
-        <linearGradient id="logo-blue" x1="0" y1="60" x2="280" y2="340" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="var(--brand-400, #60a5fa)" />
-          <stop offset="1" stopColor="var(--brand-700, #1d4ed8)" />
-        </linearGradient>
-        <linearGradient id="logo-navy" x1="284" y1="60" x2="450" y2="340" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="var(--navy-900, #0a1428)" />
-          <stop offset="1" stopColor="#000000" />
-        </linearGradient>
-        <mask id="logo-p-hole">
-          <rect width="460" height="460" fill="#fff" />
-          <circle cx="388" cy="140" r="40" fill="#000" />
-        </mask>
-      </defs>
-
-      <g transform="translate(0,30)">
-        {/* speed lines */}
-        <circle cx="20" cy="340" r="11" fill="url(#logo-blue)" />
-        <rect x="40" y="326" width="45" height="16" rx="8" fill="url(#logo-blue)" />
-        <rect x="15" y="296" width="65" height="16" rx="8" fill="url(#logo-blue)" />
-        <rect x="0" y="266" width="80" height="16" rx="8" fill="url(#logo-blue)" />
-
-        {/* F */}
-        <rect x="90" y="60" width="66" height="280" rx="12" fill="url(#logo-blue)" />
-        <rect x="90" y="60" width="190" height="66" rx="12" fill="url(#logo-blue)" />
-        <rect x="90" y="168" width="150" height="58" rx="12" fill="url(#logo-blue)" />
-
-        {/* P */}
-        <g mask="url(#logo-p-hole)">
-          <rect x="284" y="60" width="66" height="280" rx="12" fill="url(#logo-navy)" />
-          <rect x="284" y="60" width="166" height="156" rx="78" fill="url(#logo-navy)" />
-        </g>
-      </g>
-    </svg>
+      className={className}
+      style={{ objectFit: "contain" }}
+    />
   );
 }
