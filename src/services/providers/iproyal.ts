@@ -107,8 +107,15 @@ export class IPRoyalProviderAdapter implements ProviderAdapter {
   ): Promise<UpstreamProvisionResult> {
     const { username, basePassword } = await this.getAccountConfig();
 
-    const sessionId =
-      params.sessionType === "STICKY" ? randomBytes(6).toString("hex") : undefined;
+    // A session id is required in BOTH cases, not just STICKY — IPRoyal
+    // treats a bare password (no session-) as one fixed default identity
+    // rather than "randomize per connection," so omitting it meant every
+    // rotating credential we issued resolved to the same exit IP. The only
+    // difference between the two is the lifetime suffix: sticky sessions
+    // pin to that id for the requested duration, rotating ones get a fresh
+    // random id per credential with no lifetime, so each *credential* gets
+    // a distinct exit IP without being pinned long-term.
+    const sessionId = randomBytes(6).toString("hex");
 
     const password = this.buildPassword(basePassword, {
       country: params.country,
