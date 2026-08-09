@@ -29,6 +29,8 @@ export type UsageIngestInput = z.infer<typeof usageIngestSchema>;
 export const resolveCredentialSchema = z.object({
   username: z.string().trim().min(1),
   password: z.string().min(1),
+  /** Set by the gateway agent retrying after the current exit IP failed. */
+  forceRotate: z.boolean().optional(),
 });
 
 export type ResolveCredentialInput = z.infer<typeof resolveCredentialSchema>;

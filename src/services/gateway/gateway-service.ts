@@ -265,8 +265,16 @@ export function revealCredentialPassword(passwordEnc: string): string {
  * if so, it mints a fresh upstream session (new exit IP) and persists it,
  * closing out the old one — the credential itself never expires because of
  * this, only the exit IP behind it changes.
+ *
+ * forceRotate bypasses both of those checks and always mints a fresh
+ * session — the gateway agent sets this on a retry after the current exit
+ * IP failed to reach a target (timeout, upstream 5xx, etc.), so a single
+ * bad IP doesn't take down every subsequent request on that credential.
  */
-export async function resolveActiveUpstreamSession(credentialId: string) {
+export async function resolveActiveUpstreamSession(
+  credentialId: string,
+  forceRotate = false,
+) {
   const credential = await prisma.customerProxyCredential.findUniqueOrThrow({
     where: { id: credentialId },
     include: {
@@ -285,7 +293,7 @@ export async function resolveActiveUpstreamSession(credentialId: string) {
   const sessionExpired =
     credential.sessionType === "STICKY" && stickyWindowMs > 0 && sessionAgeMs > stickyWindowMs;
 
-  if (!sessionExpired) {
+  if (!sessionExpired && !forceRotate) {
     return currentSession;
   }
 
