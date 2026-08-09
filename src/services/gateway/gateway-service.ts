@@ -270,6 +270,15 @@ export function revealCredentialPassword(passwordEnc: string): string {
  * session — the gateway agent sets this on a retry after the current exit
  * IP failed to reach a target (timeout, upstream 5xx, etc.), so a single
  * bad IP doesn't take down every subsequent request on that credential.
+ *
+ * Both rotation paths re-run selectRoute() rather than assuming the
+ * credential's original provider — the same health/priority/latency
+ * scoring used at issuance, re-evaluated live. If the original provider
+ * has since gone unhealthy (or a better-scoring one is now available),
+ * rotation lands on a different provider automatically instead of
+ * repeatedly retrying a provider that's currently down. Falls back to the
+ * original provider if no route is currently available (e.g. everything's
+ * degraded) rather than failing outright.
  */
 export async function resolveActiveUpstreamSession(
   credentialId: string,
@@ -297,7 +306,21 @@ export async function resolveActiveUpstreamSession(
     return currentSession;
   }
 
-  const adapter = getProviderAdapter(currentSession.provider.slug);
+  const selected = await selectRoute(credential.productId, credential.country ?? undefined);
+  const route = selected
+    ? await prisma.gatewayRoute.findUnique({
+        where: { id: selected.routeId },
+        include: { provider: true },
+      })
+    : null;
+  // Fall back to the credential's existing provider/gateway if routing
+  // currently has nothing available — better to retry the known provider
+  // than fail the request outright.
+  const targetProviderSlug = route?.provider.slug ?? currentSession.provider.slug;
+  const targetProviderId = route?.providerId ?? currentSession.providerId;
+  const targetGatewayId = route?.gatewayId ?? currentSession.gatewayId;
+
+  const adapter = getProviderAdapter(targetProviderSlug);
   const upstream = await adapter.createProxyCredential({
     productSlug: credential.product.slug,
     country: credential.country ?? undefined,
@@ -316,8 +339,8 @@ export async function resolveActiveUpstreamSession(
     prisma.proxySession.create({
       data: {
         credentialId: credential.id,
-        gatewayId: currentSession.gatewayId,
-        providerId: currentSession.providerId,
+        gatewayId: targetGatewayId,
+        providerId: targetProviderId,
         upstreamSessionRef: upstream.upstreamSessionRef,
         exitCountry: upstream.exitCountry,
         exitIp: upstream.exitIp,

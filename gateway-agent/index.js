@@ -23,6 +23,13 @@ if (!AGENT_SECRET) {
   process.exit(1);
 }
 
+// Reused across all plain-HTTP upstream requests — Node's Agent already
+// pools/reuses sockets per host:port internally, so this alone gets
+// connection reuse for that path without any custom pooling logic (the
+// CONNECT/HTTPS path can't use an http.Agent since it's raw TCP, hence the
+// hand-rolled pool below).
+const httpUpstreamAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
+
 // ---- Control API -----------------------------------------------------
 
 async function controlApiFetch(path, body) {
@@ -82,6 +89,60 @@ function sendHeartbeat() {
   }).catch((err) => console.error("heartbeat failed:", err.message));
 }
 setInterval(sendHeartbeat, 60_000).unref();
+
+// ---- Upstream connection pre-warming ------------------------------------
+//
+// Opening a fresh TCP connection to the upstream on every single client
+// CONNECT costs a full handshake round-trip before we can even send the
+// CONNECT line. Keeping a small pool of already-open, idle sockets per
+// upstream host:port lets most requests skip that RTT — pull an
+// already-connected socket, issue CONNECT immediately. Each pooled socket
+// is used for exactly one client's tunnel and then discarded (never
+// returned to the pool) — this only avoids handshake latency, it never
+// shares a socket's data between two different client sessions.
+
+const POOL_SIZE = 4;
+const connectionPools = new Map(); // "host:port" -> Set<net.Socket>, idle + (maybe still connecting)
+
+function poolKey(host, port) {
+  return `${host}:${port}`;
+}
+
+function replenishPool(host, port) {
+  const key = poolKey(host, port);
+  let pool = connectionPools.get(key);
+  if (!pool) {
+    pool = new Set();
+    connectionPools.set(key, pool);
+  }
+  while (pool.size < POOL_SIZE) {
+    const sock = net.connect(port, host);
+    sock.on("error", () => pool.delete(sock));
+    sock.on("close", () => pool.delete(sock));
+    pool.add(sock);
+  }
+}
+
+/** Pulls an idle (connected or still-connecting) socket from the pool, refilling behind it. */
+function takeFromPool(host, port) {
+  const key = poolKey(host, port);
+  const pool = connectionPools.get(key);
+  let sock = null;
+  if (pool && pool.size > 0) {
+    sock = pool.values().next().value;
+    pool.delete(sock);
+    sock.removeAllListeners("error");
+    sock.removeAllListeners("close");
+  }
+  replenishPool(host, port);
+  return sock || net.connect(port, host);
+}
+
+/** A net.Socket only fires 'connect' once — a pooled socket may have already connected before this listener is attached. */
+function onceConnected(sock, cb) {
+  if (!sock.connecting && !sock.destroyed) cb();
+  else sock.once("connect", cb);
+}
 
 // ---- Auth --------------------------------------------------------------
 
@@ -152,10 +213,10 @@ function handleConnect(req, clientSocket, head) {
           }
         };
 
-        const upstreamSocket = net.connect(upstream.port, upstream.host);
+        const upstreamSocket = takeFromPool(upstream.host, upstream.port);
         upstreamSocket.setTimeout(30_000, () => failAttempt("timeout"));
 
-        upstreamSocket.once("connect", () => {
+        onceConnected(upstreamSocket, () => {
           const upstreamAuth = Buffer.from(`${upstream.username}:${upstream.password}`).toString(
             "base64",
           );
@@ -279,6 +340,7 @@ async function handleHttpRequest(req, res) {
         method: req.method,
         path: req.url,
         headers,
+        agent: httpUpstreamAgent,
       });
 
       proxyReq.on("response", (upstreamRes) => {
