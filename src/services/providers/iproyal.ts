@@ -17,12 +17,14 @@ import type {
 
 const PROVIDER_SLUG = "iproyal";
 
-// Verified against docs.iproyal.com (Aug 2026) — IPRoyal residential proxy
-// access point and password-suffix targeting/session syntax. Re-check
-// before touching these; their legacy API was deprecated Sep 2025, so
-// they do change this surface.
+// Host confirmed against docs.iproyal.com (Aug 2026); port confirmed
+// directly from a live account's dashboard (Proxies & Scraping ->
+// Residential -> Connection) since it didn't match what the docs implied
+// (12321) — apparently account/plan-specific. Re-check both before
+// touching; their legacy API was deprecated Sep 2025, so this surface does
+// change.
 const PROXY_HOST = "geo.iproyal.com"; // auto-routes by the password's country- suffix
-const PROXY_PORT = 12321;
+const PROXY_PORT = 11240;
 const CONTROL_API_BASE = "https://resi-api.iproyal.com/v1";
 
 // Labels the admin must type exactly (case-sensitive) into "Additional
