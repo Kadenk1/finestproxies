@@ -129,6 +129,18 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
     URL.revokeObjectURL(url);
   }
 
+  function copyAll() {
+    const lines = results.map((c) => formatCredential(c, format));
+    navigator.clipboard.writeText(lines.join("\n"));
+    toast.success(`Copied ${results.length} credentials.`);
+  }
+
+  // Rendering thousands of individual rows (each with its own buttons) gets
+  // sluggish and isn't useful anyway for a bulk list — past this size, show
+  // a summary and point at copy/download instead of listing every row.
+  const LIST_RENDER_LIMIT = 200;
+  const isBulkResult = results.length > LIST_RENDER_LIMIT;
+
   return (
     <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
       <Card>
@@ -221,11 +233,11 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
           )}
 
           <div className="space-y-1.5">
-            <Label>Quantity</Label>
+            <Label>Quantity (up to 5,000)</Label>
             <Input
               type="number"
               min={1}
-              max={20}
+              max={5000}
               value={quantity}
               onChange={(e) => setQuantity(Number(e.target.value))}
             />
@@ -259,6 +271,12 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
                   ))}
                 </SelectContent>
               </Select>
+              {isBulkResult && (
+                <Button variant="outline" size="sm" onClick={copyAll}>
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy all
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={downloadAll}>
                 <Download className="h-3.5 w-3.5" />
                 Download .txt
@@ -272,6 +290,16 @@ export function ProxyGeneratorForm({ products }: { products: ProductCatalogEntry
               Generated credentials will appear here. Passwords are shown once —
               copy or download them now.
             </p>
+          ) : isBulkResult ? (
+            <div className="flex flex-col items-center gap-3 py-12 text-center">
+              <p className="text-lg font-semibold text-foreground">
+                {results.length.toLocaleString()} credentials generated
+              </p>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Passwords are shown once — a list this size isn&apos;t shown row by
+                row. Use Copy all or Download .txt above to save them now.
+              </p>
+            </div>
           ) : (
             <div className="space-y-2">
               {results.map((cred) => (

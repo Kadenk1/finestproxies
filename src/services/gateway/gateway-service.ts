@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { customAlphabet } from "nanoid";
 import { prisma } from "@/lib/db/prisma";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secrets";
@@ -56,15 +57,25 @@ export class NoAvailableRouteError extends Error {
 }
 
 /**
- * Orchestrates issuing a customer-facing proxy credential. This is the one
- * place that bridges "what the customer asked for" and "which upstream
- * provider actually serves it" — everything downstream (dashboard, API)
- * only ever sees OUR gateway hostnames and credentials we generate here,
- * never the upstream's.
+ * Orchestrates issuing customer-facing proxy credentials in bulk. This is
+ * the one place that bridges "what the customer asked for" and "which
+ * upstream provider actually serves it" — everything downstream (dashboard,
+ * API) only ever sees OUR gateway hostnames and credentials we generate
+ * here, never the upstream's.
+ *
+ * Product/balance/route lookup and the provider adapter are resolved once
+ * regardless of quantity, and the two credential/session tables are
+ * populated via a single createMany each rather than one transaction per
+ * credential — issuing a list of a few thousand is a couple of seconds of
+ * work, not a request that hangs for minutes. The adapter itself memoizes
+ * its own account-credential fetch (see bright-data.ts / iproyal.ts), so
+ * concurrently calling createProxyCredential() per item doesn't turn into
+ * one DB round-trip per item either.
  */
-export async function generateProxyCredential(
+export async function generateProxyCredentials(
   input: GenerateCredentialInput,
-): Promise<GeneratedCredential> {
+  quantity: number,
+): Promise<GeneratedCredential[]> {
   const product = await prisma.product.findUnique({
     where: { slug: input.productSlug },
   });
@@ -92,32 +103,42 @@ export async function generateProxyCredential(
   });
 
   const adapter = getProviderAdapter(route.provider.slug);
-  const upstream = await adapter.createProxyCredential({
-    productSlug: input.productSlug,
-    country: input.country,
-    region: input.region,
-    city: input.city,
-    protocol: input.protocol,
-    sessionType: input.sessionType,
-    sessionDurationMins: input.sessionDurationMins,
-  });
-
-  const username = `cg_${alphanumeric(12)}`;
-  const password = alphanumeric(20);
   const expiresAt =
     input.sessionType === "STICKY" && input.sessionDurationMins
       ? new Date(Date.now() + input.sessionDurationMins * 60_000)
       : null;
 
-  const credential = await prisma.$transaction(async (tx) => {
-    const created = await tx.customerProxyCredential.create({
-      data: {
+  const items = await Promise.all(
+    Array.from({ length: quantity }, async () => {
+      const upstream = await adapter.createProxyCredential({
+        productSlug: input.productSlug,
+        country: input.country,
+        region: input.region,
+        city: input.city,
+        protocol: input.protocol,
+        sessionType: input.sessionType,
+        sessionDurationMins: input.sessionDurationMins,
+      });
+      return {
+        id: randomUUID(),
+        username: `cg_${alphanumeric(12)}`,
+        password: alphanumeric(20),
+        upstream,
+      };
+    }),
+  );
+
+  const createdAt = new Date();
+  await prisma.$transaction([
+    prisma.customerProxyCredential.createMany({
+      data: items.map((item) => ({
+        id: item.id,
         userId: input.userId,
         productId: product.id,
         gatewayId: route.gatewayId,
         label: input.label,
-        username,
-        passwordEnc: encryptSecret(password),
+        username: item.username,
+        passwordEnc: encryptSecret(item.password),
         protocol: input.protocol,
         sessionType: input.sessionType,
         country: input.country,
@@ -125,36 +146,41 @@ export async function generateProxyCredential(
         city: input.city,
         sessionDurationMins: input.sessionDurationMins,
         expiresAt,
-      },
-    });
-
-    await tx.proxySession.create({
-      data: {
-        credentialId: created.id,
+        createdAt,
+      })),
+    }),
+    prisma.proxySession.createMany({
+      data: items.map((item) => ({
+        credentialId: item.id,
         gatewayId: route.gatewayId,
         providerId: route.providerId,
-        upstreamSessionRef: upstream.upstreamSessionRef,
-        exitCountry: upstream.exitCountry,
-        exitIp: upstream.exitIp,
-      },
-    });
+        upstreamSessionRef: item.upstream.upstreamSessionRef,
+        exitCountry: item.upstream.exitCountry,
+        exitIp: item.upstream.exitIp,
+      })),
+    }),
+  ]);
 
-    return created;
-  });
-
-  return {
-    id: credential.id,
+  return items.map((item) => ({
+    id: item.id,
     host: route.gateway.hostname,
     port: portFor(input.protocol),
-    username,
-    password,
-    protocol: credential.protocol,
-    sessionType: credential.sessionType,
-    country: credential.country,
-    region: credential.region,
-    city: credential.city,
-    createdAt: credential.createdAt,
-  };
+    username: item.username,
+    password: item.password,
+    protocol: input.protocol,
+    sessionType: input.sessionType,
+    country: input.country ?? null,
+    region: input.region ?? null,
+    city: input.city ?? null,
+    createdAt,
+  }));
+}
+
+export async function generateProxyCredential(
+  input: GenerateCredentialInput,
+): Promise<GeneratedCredential> {
+  const [credential] = await generateProxyCredentials(input, 1);
+  return credential;
 }
 
 export async function revokeProxyCredential(

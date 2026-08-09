@@ -124,7 +124,10 @@ function handleConnect(req, clientSocket, head) {
       const targetPort = targetPortStr || "443";
 
       const upstreamSocket = net.connect(upstream.port, upstream.host);
-      upstreamSocket.setTimeout(30_000, () => upstreamSocket.destroy());
+      upstreamSocket.setTimeout(30_000, () => {
+        console.error(`upstream ${upstream.host}:${upstream.port} timed out`);
+        upstreamSocket.destroy();
+      });
 
       upstreamSocket.once("connect", () => {
         const upstreamAuth = Buffer.from(`${upstream.username}:${upstream.password}`).toString(
@@ -155,6 +158,9 @@ function handleConnect(req, clientSocket, head) {
         const remainder = responseBuffer.slice(headerEnd + 4);
 
         if (!/^HTTP\/1\.[01]\s+200/.test(statusLine)) {
+          console.error(
+            `upstream ${upstream.host}:${upstream.port} rejected CONNECT ${targetHost}:${targetPort} — ${statusLine} | ${responseBuffer.slice(0, 500).toString()}`,
+          );
           clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
           upstreamSocket.destroy();
           finish(gatewayHostname, credentialUsername);

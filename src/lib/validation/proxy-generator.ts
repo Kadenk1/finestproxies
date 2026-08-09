@@ -8,7 +8,7 @@ export const generateProxySchema = z.object({
   protocol: z.enum(["HTTP", "HTTPS", "SOCKS5"]),
   sessionType: z.enum(["ROTATING", "STICKY"]),
   sessionDurationMins: z.coerce.number().int().min(1).max(1440).optional(),
-  quantity: z.coerce.number().int().min(1).max(20).default(1),
+  quantity: z.coerce.number().int().min(1).max(5000).default(1),
 });
 
 export type GenerateProxyInput = z.infer<typeof generateProxySchema>;

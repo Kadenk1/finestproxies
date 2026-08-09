@@ -16,10 +16,11 @@ export async function checkRateLimit(
   key: string,
   limit: number,
   windowSeconds: number,
+  amount = 1,
 ): Promise<RateLimitResult> {
   const bucketKey = `ratelimit:${key}`;
   try {
-    const count = await redis.incr(bucketKey);
+    const count = await redis.incrby(bucketKey, amount);
     if (count === 1) {
       await redis.expire(bucketKey, windowSeconds);
     }

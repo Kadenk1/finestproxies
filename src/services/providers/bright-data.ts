@@ -70,7 +70,20 @@ export class BrightDataProviderAdapter implements ProviderAdapter {
     return decryptSecret(cred.encryptedValue);
   }
 
-  private async getZoneConfig() {
+  // Memoized per adapter instance: a bulk generation call can invoke
+  // createProxyCredential hundreds or thousands of times concurrently
+  // (issuing a large proxy list), and without this every one of those would
+  // independently re-fetch and re-decrypt the same three credentials.
+  private zoneConfigPromise: ReturnType<typeof this.fetchZoneConfig> | null = null;
+
+  private getZoneConfig() {
+    if (!this.zoneConfigPromise) {
+      this.zoneConfigPromise = this.fetchZoneConfig();
+    }
+    return this.zoneConfigPromise;
+  }
+
+  private async fetchZoneConfig() {
     const provider = await this.getProvider();
     const [customerId, zoneName, zonePassword] = await Promise.all([
       this.getCredential(provider.id, CRED.customerId),

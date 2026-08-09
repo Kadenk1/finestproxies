@@ -70,7 +70,18 @@ export class IPRoyalProviderAdapter implements ProviderAdapter {
     return decryptSecret(cred.encryptedValue);
   }
 
-  private async getAccountConfig() {
+  // Memoized per adapter instance — see the identical comment in
+  // bright-data.ts's getZoneConfig(); same reasoning applies here.
+  private accountConfigPromise: ReturnType<typeof this.fetchAccountConfig> | null = null;
+
+  private getAccountConfig() {
+    if (!this.accountConfigPromise) {
+      this.accountConfigPromise = this.fetchAccountConfig();
+    }
+    return this.accountConfigPromise;
+  }
+
+  private async fetchAccountConfig() {
     const provider = await this.getProvider();
     const [username, basePassword] = await Promise.all([
       this.getCredential(provider.id, CRED.proxyUsername),
