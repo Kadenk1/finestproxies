@@ -112,7 +112,7 @@ export function DashboardNavLinks({ onNavigate }: { onNavigate?: () => void }) {
                   "block rounded-lg px-3 py-1.5 text-sm transition-colors",
                   pathname === link.href
                     ? "bg-brand-50 font-medium text-brand-700"
-                    : "text-navy-500 hover:bg-secondary hover:text-navy-900",
+                    : "text-navy-400 hover:bg-secondary hover:text-navy-900",
                 )}
               >
                 {link.label}

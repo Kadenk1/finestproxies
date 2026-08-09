@@ -16,7 +16,7 @@ function CopyButton({ code }: { code: string }) {
       type="button"
       variant="ghost"
       size="icon-sm"
-      className="absolute top-2.5 right-2.5 text-navy-300 hover:bg-white/10 hover:text-white"
+      className="absolute top-2.5 right-2.5 text-white/50 hover:bg-white/10 hover:text-white"
       aria-label="Copy code"
       onClick={async () => {
         await navigator.clipboard.writeText(code);

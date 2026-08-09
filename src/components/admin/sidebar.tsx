@@ -63,7 +63,7 @@ export function AdminSidebar() {
                 "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
                   ? "bg-white/10 text-white"
-                  : "text-navy-200 hover:bg-white/5 hover:text-white",
+                  : "text-white/70 hover:bg-white/5 hover:text-white",
               )}
             >
               <link.icon className="h-4 w-4 shrink-0" />
@@ -74,7 +74,7 @@ export function AdminSidebar() {
       </nav>
 
       <div className="border-t border-white/10 p-3">
-        <SignOutButton className="w-full justify-start text-navy-200 hover:bg-white/5 hover:text-white" />
+        <SignOutButton className="w-full justify-start text-white/70 hover:bg-white/5 hover:text-white" />
       </div>
     </aside>
   );
