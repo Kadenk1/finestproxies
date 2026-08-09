@@ -43,7 +43,6 @@ export default async function AdminCustomersPage({
             <TableRow>
               <TableHead>Email</TableHead>
               <TableHead>Name</TableHead>
-              <TableHead>Balance</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Joined</TableHead>
             </TableRow>
@@ -60,7 +59,6 @@ export default async function AdminCustomersPage({
                   </Link>
                 </TableCell>
                 <TableCell>{customer.name ?? "—"}</TableCell>
-                <TableCell>${Number(customer.balance?.cashBalance ?? 0).toFixed(2)}</TableCell>
                 <TableCell>
                   <Badge variant={statusVariant[customer.status] ?? "secondary"}>
                     {customer.status}

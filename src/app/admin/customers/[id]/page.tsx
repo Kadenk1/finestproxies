@@ -42,14 +42,6 @@ export default async function AdminCustomerDetailPage({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Cash balance</div>
-            <div className="mt-1 text-xl font-semibold text-foreground">
-              ${Number(customer.balance?.cashBalance ?? 0).toFixed(2)}
-            </div>
-          </CardContent>
-        </Card>
         {customer.productBalances.map((b) => (
           <Card key={b.id}>
             <CardContent className="pt-4">

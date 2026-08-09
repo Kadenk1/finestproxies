@@ -54,10 +54,21 @@ export async function recordUsageEvent(input: RecordUsageEventInput) {
       },
     });
 
-    const balance = await tx.productBalance.findUnique({
-      where: { userId_productId: { userId: input.userId, productId: input.productId } },
-    });
-    if (balance) {
+    // Real bytes only mean something for a GB-billed product — deplete the
+    // right balance field for whichever billing model this product
+    // actually uses, rather than always touching remainingBytes regardless.
+    // IP_MONTH/PORT_MONTH/FLAT are intentionally not byte-metered (that's
+    // the whole point of those billing models — pay per IP/port/flat fee,
+    // not per GB) — usage is still recorded above for visibility, it just
+    // doesn't deplete remainingUnits, since bytes don't map onto "units" in
+    // any well-defined way for those.
+    const [balance, product] = await Promise.all([
+      tx.productBalance.findUnique({
+        where: { userId_productId: { userId: input.userId, productId: input.productId } },
+      }),
+      tx.product.findUnique({ where: { id: input.productId }, select: { billingUnit: true } }),
+    ]);
+    if (balance && product?.billingUnit === "GB") {
       const remaining = balance.remainingBytes - BigInt(totalBytes);
       await tx.productBalance.update({
         where: { id: balance.id },

@@ -1,4 +1,4 @@
-import { Wallet, Database, Router, Smartphone, Gauge, CalendarRange } from "lucide-react";
+import { Database, Router, Smartphone, Gauge, CalendarRange } from "lucide-react";
 import { auth } from "@/auth";
 import { getDashboardOverview } from "@/lib/data/dashboard";
 import { StatCard } from "@/components/dashboard/stat-card";
@@ -45,12 +45,7 @@ export default async function DashboardOverviewPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Account balance"
-          value={`$${data.cashBalance.toFixed(2)}`}
-          icon={Wallet}
-        />
+      <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Residential remaining"
           value={resi ? `${bytesToGb(resi.remainingBytes).toFixed(2)} GB` : "0 GB"}

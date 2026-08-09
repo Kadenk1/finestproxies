@@ -3,7 +3,6 @@ import { getCustomerBalanceSummary } from "@/services/billing/order-service";
 import { prisma } from "@/lib/db/prisma";
 import { bytesToGb } from "@/services/usage/usage-service";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -25,7 +24,7 @@ export default async function BillingPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  const [{ cashBalance, productBalances }, payments] = await Promise.all([
+  const [{ productBalances }, payments] = await Promise.all([
     getCustomerBalanceSummary(userId),
     prisma.payment.findMany({
       where: { order: { userId } },
@@ -45,11 +44,6 @@ export default async function BillingPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard
-          label="Account credit"
-          value={`$${Number(cashBalance?.cashBalance ?? 0).toFixed(2)}`}
-          icon={Wallet}
-        />
         {productBalances.map((b) => (
           <StatCard
             key={b.id}
