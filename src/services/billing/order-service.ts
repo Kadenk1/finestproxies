@@ -1,6 +1,8 @@
 import { Prisma } from "@/generated/prisma/client";
+import type { PaymentProvider } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/db/prisma";
 import { gbToBytes } from "@/services/usage/usage-service";
+import { isStripeConfigured } from "@/lib/config/stripe";
 
 export class InvalidQuantityError extends Error {
   constructor(min: number, max: number) {
@@ -10,12 +12,13 @@ export class InvalidQuantityError extends Error {
 }
 
 /**
- * Creates an order and immediately settles it through the mock payment
- * provider. This stands in for a real checkout (Phase 5 wires up Stripe)
- * but is deliberately structured the same way a real integration must be:
- * the order is created PENDING, and only a server-side confirmation step
- * (`fulfillMockPayment`, standing in for a verified webhook) ever credits
- * the customer's balance — never the initial request itself.
+ * Creates a PENDING order. Callers decide how it gets paid:
+ * - Stripe configured: the API route creates a Checkout Session for this
+ *   order next and redirects the customer there; `fulfillStripePayment`
+ *   (called only from the webhook, after signature verification) is what
+ *   actually credits the balance.
+ * - Stripe not configured (local dev): falls back to instantly settling
+ *   through the mock provider, same as before Stripe existed.
  */
 export async function purchaseProduct(params: {
   userId: string;
@@ -57,7 +60,9 @@ export async function purchaseProduct(params: {
     },
   });
 
-  await fulfillMockPayment(order.id);
+  if (!isStripeConfigured) {
+    await fulfillMockPayment(order.id);
+  }
 
   return prisma.order.findUniqueOrThrow({
     where: { id: order.id },
@@ -65,15 +70,32 @@ export async function purchaseProduct(params: {
   });
 }
 
-/**
- * TODO(production): replace this direct call with a Stripe webhook handler
- * that verifies the event signature before calling the same crediting
- * logic. The idempotency shape (unique `idempotencyKey`, credit only on
- * first successful insert) is intentionally identical so that swap is a
- * transport-layer change, not a logic change.
- */
 async function fulfillMockPayment(orderId: string) {
-  const idempotencyKey = `mock_${orderId}`;
+  return fulfillPayment({ orderId, provider: "MOCK", idempotencyKey: `mock_${orderId}` });
+}
+
+/**
+ * Called only from the Stripe webhook handler, only after the event
+ * signature has been verified — never from a client-facing request. The
+ * Checkout Session id is both the provider payment reference and (prefixed)
+ * the idempotency key, so a redelivered webhook event is a safe no-op.
+ */
+export async function fulfillStripePayment(orderId: string, stripeSessionId: string) {
+  return fulfillPayment({
+    orderId,
+    provider: "STRIPE",
+    providerPaymentId: stripeSessionId,
+    idempotencyKey: `stripe_${stripeSessionId}`,
+  });
+}
+
+async function fulfillPayment(params: {
+  orderId: string;
+  provider: PaymentProvider;
+  providerPaymentId?: string;
+  idempotencyKey: string;
+}) {
+  const { orderId, provider, providerPaymentId, idempotencyKey } = params;
 
   const order = await prisma.order.findUniqueOrThrow({
     where: { id: orderId },
@@ -93,7 +115,8 @@ async function fulfillMockPayment(orderId: string) {
       await tx.payment.create({
         data: {
           orderId,
-          provider: "MOCK",
+          provider,
+          providerPaymentId,
           idempotencyKey,
           amount: order.total,
           status: "SUCCEEDED",
@@ -160,6 +183,55 @@ async function fulfillMockPayment(orderId: string) {
       }
     }
   });
+}
+
+/**
+ * Builds a Stripe Checkout Session for a PENDING order and returns its
+ * hosted-page URL. One line item per OrderItem, each `quantity: 1` with the
+ * OrderItem's already-computed total as the price — sidesteps Stripe's
+ * line-item quantity needing to be a whole number, which a fractional GB
+ * purchase wouldn't satisfy. The actual balance credit happens later, via
+ * the webhook calling `fulfillStripePayment` — never from this call or from
+ * the customer's browser landing back on the success URL.
+ */
+export async function createStripeCheckoutSession(orderId: string) {
+  const { getStripeClient } = await import("@/lib/stripe/client");
+  const stripe = getStripeClient();
+
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { id: orderId },
+    include: { items: { include: { product: true } }, user: true },
+  });
+
+  const appUrl = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      customer_email: order.user.email,
+      client_reference_id: order.id,
+      metadata: { orderId: order.id },
+      line_items: order.items.map((item) => ({
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: Math.round(Number(item.totalPrice) * 100),
+          product_data: {
+            name: `${item.product.name} — ${Number(item.quantity)} ${item.product.billingUnit}`,
+          },
+        },
+      })),
+      success_url: `${appUrl}/dashboard/orders?stripe=success`,
+      cancel_url: `${appUrl}/dashboard/orders?stripe=cancel`,
+    },
+    { idempotencyKey: `checkout_${order.id}` },
+  );
+
+  if (!session.url) {
+    throw new Error("Stripe did not return a Checkout Session URL.");
+  }
+
+  return session.url;
 }
 
 export async function getOrderHistory(userId: string) {

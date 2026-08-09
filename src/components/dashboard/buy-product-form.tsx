@@ -55,6 +55,10 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
         toast.error(data.error ?? "Purchase failed.");
         return;
       }
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
       toast.success(`Purchased ${quantity} ${unitNoun[product.billingUnit]} of ${product.name}.`);
       router.refresh();
     } catch {
@@ -109,7 +113,7 @@ export function BuyProductForm({ products }: { products: BuyableProduct[] }) {
       </div>
       <Button onClick={handleBuy} disabled={submitting || !product}>
         <ShoppingCart className="h-4 w-4" />
-        {submitting ? "Processing..." : "Buy now (mock payment)"}
+        {submitting ? "Processing..." : "Buy now"}
       </Button>
     </div>
   );

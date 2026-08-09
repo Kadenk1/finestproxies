@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { purchaseSchema } from "@/lib/validation/purchase";
-import { purchaseProduct, InvalidQuantityError } from "@/services/billing/order-service";
+import {
+  purchaseProduct,
+  createStripeCheckoutSession,
+  InvalidQuantityError,
+} from "@/services/billing/order-service";
 import { checkRateLimit } from "@/lib/security/rate-limit";
+import { isStripeConfigured } from "@/lib/config/stripe";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -26,6 +31,10 @@ export async function POST(request: Request) {
 
   try {
     const order = await purchaseProduct({ userId: session.user.id, ...parsed.data });
+    if (isStripeConfigured && order.status === "PENDING") {
+      const checkoutUrl = await createStripeCheckoutSession(order.id);
+      return NextResponse.json({ order, checkoutUrl }, { status: 201 });
+    }
     return NextResponse.json({ order }, { status: 201 });
   } catch (err) {
     if (err instanceof InvalidQuantityError) {

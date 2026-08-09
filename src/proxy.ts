@@ -49,6 +49,6 @@ export const config = {
   // page + its submit endpoint (those two must stay reachable, or nobody
   // could ever get past the gate).
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|brand/|coming-soon|api/site-access).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icon.png|apple-icon.png|brand/|coming-soon|api/site-access|api/webhooks/).*)",
   ],
 };
