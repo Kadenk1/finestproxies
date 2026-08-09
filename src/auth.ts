@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/security/rate-limit";
 import { loginSchema } from "@/lib/validation/auth";
 import type { UserRole } from "@/generated/prisma/enums";
 import { isDiscordConfigured } from "@/lib/config/oauth";
+import { isDiscordAdmin } from "@/lib/auth/discord-admin";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
@@ -70,6 +71,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           Discord({
             clientId: process.env.DISCORD_CLIENT_ID,
             clientSecret: process.env.DISCORD_CLIENT_SECRET,
+            // guilds.members.read lets us check server membership + role in
+            // the signIn callback below, to auto-grant admin access.
+            authorization: { params: { scope: "identify email guilds.members.read" } },
           }),
         ]
       : []),
@@ -114,15 +118,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return false;
       }
 
+      // Auto-promote on every Discord login if they currently hold the
+      // configured admin role in the configured server — never auto-demote
+      // here, so losing the Discord role doesn't silently lock out an admin
+      // who also has credentials-based access; revoke that deliberately
+      // from the admin panel instead.
+      let role = dbUser.role;
+      if (account.access_token && (await isDiscordAdmin(account.access_token))) {
+        role = "ADMIN";
+      }
+
       await prisma.user.update({
         where: { id: dbUser.id },
-        data: { lastLoginAt: new Date() },
+        data: { lastLoginAt: new Date(), ...(role !== dbUser.role ? { role } : {}) },
       });
 
       // Stash our DB identity onto `user` so the jwt callback (below) sees it —
       // the OAuth `user` object otherwise only carries the provider profile.
       user.id = dbUser.id;
-      user.role = dbUser.role;
+      user.role = role;
 
       return true;
     },
