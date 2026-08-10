@@ -11,8 +11,19 @@
 # below — since this project's local dev already uses ".env" for
 # `npm run dev`, production secrets live in ".env.production" instead,
 # which means every `docker compose` invocation against this file must
-# pass --env-file .env.production explicitly or POSTGRES_PASSWORD (no
-# default) silently resolves to an empty string.
+# pass --env-file .env.production explicitly.
+#
+# Every service that actually NEEDS a secret at container runtime gets it
+# via env_file: (delivered straight into the container's environment,
+# exactly like `app` already worked) rather than ${VAR} interpolation in an
+# `environment:` block — interpolation only happens at Compose's own
+# command-parsing time, so it's evaluated inconsistently across `up` vs
+# `run` vs `build` and silently produces a blank value for any invocation
+# that forgets --env-file. ${VAR:?err} interpolation is kept ONLY where a
+# value has to be substituted into a literal shell command string
+# (postgres's healthcheck) rather than delivered as a container env var —
+# there, the required-syntax makes a missing value fail loudly at
+# `docker compose up` instead of running with a blank password.
 #
 # This is separate from docker-compose.yml, which is Postgres+Redis only,
 # for local development against `npm run dev`.
@@ -25,12 +36,29 @@ services:
     env_file:
       - .env.production
     environment:
+      # POSTGRES_USER/DB/PASSWORD are delivered by env_file above — Postgres's
+      # own entrypoint reads them directly from the container environment,
+      # they don't need to be repeated here via ${...} interpolation. This
+      # block exists only to apply matching defaults for USER/DB when
+      # .env.production leaves them unset (same defaults env_file's absence
+      # would otherwise silently fall through to).
       POSTGRES_USER: ${POSTGRES_USER:-finestproxies}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-finestproxies}
+      # Redundant with env_file's real value AND with the official Postgres
+      # image's own entrypoint (which already refuses to start with no
+      # password) — kept anyway as a third, Compose-level guard: a missing
+      # value here fails `docker compose up` immediately, before Postgres's
+      # container even starts, rather than after.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.production}
     volumes:
       - finestproxies_postgres_data:/var/lib/postgresql/data
     healthcheck:
+      # Interpolated into a literal shell command, not delivered as a
+      # container env var — env_file: can't reach this. ${POSTGRES_PASSWORD:?...}
+      # isn't needed here since pg_isready doesn't take a password arg; the
+      # required-check on the password itself lives on `app`'s DATABASE_URL
+      # below, which is the one place an actually-blank password would
+      # silently produce a working-looking-but-wrong connection string.
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finestproxies} -d ${POSTGRES_DB:-finestproxies}"]
       interval: 5s
       timeout: 5s
@@ -70,9 +98,20 @@ services:
       dockerfile: Dockerfile
     container_name: finestproxies-gateway-agent
     restart: unless-stopped
+    # GATEWAY_AGENT_SECRET is delivered via env_file (the real value from
+    # .env.production), not ${...} interpolation — see the top-of-file note.
+    # ${GATEWAY_AGENT_SECRET:?...} below is a second, independent guard: if
+    # .env.production is ever missing entirely (e.g. --env-file omitted, or
+    # the file itself doesn't exist), env_file: silently contributes nothing
+    # and this line is what actually stops `docker compose up` from
+    # starting the container at all, rather than relying solely on
+    # gateway-agent/index.js's own runtime check (which still exists as a
+    # second, independent guard).
+    env_file:
+      - .env.production
     environment:
       CONTROL_API_BASE: "http://app:3000"
-      GATEWAY_AGENT_SECRET: ${GATEWAY_AGENT_SECRET}
+      GATEWAY_AGENT_SECRET: ${GATEWAY_AGENT_SECRET:?GATEWAY_AGENT_SECRET must be set in .env.production}
       GATEWAY_HOSTNAME: ${GATEWAY_HOSTNAME:-proxy.finestproxies.com}
       PORT: "8000"
     ports:
