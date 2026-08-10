@@ -239,7 +239,30 @@ function proxyTestRequest(username: string, password: string): Promise<void> {
     );
     const req = httpsRequest(
       "https://api.ipify.org",
-      { agent, timeout: 10_000 },
+      {
+        agent,
+        timeout: 10_000,
+        // Confirmed (Aug 2026) that Rayobyte's proxy intercepts/re-signs
+        // TLS on tunneled connections rather than passing it through
+        // untouched — a plain (non-proxied) request to the same URL from
+        // this same host verifies fine, but through this proxy it fails
+        // with "unable to verify the first certificate" every time. This
+        // health check only needs to confirm the credential authenticates
+        // and the tunnel opens, not validate a cert chain Rayobyte itself
+        // controls, so skipping verification here is scoped correctly.
+        //
+        // This does NOT mean customer traffic through this provider is
+        // unaffected — if Rayobyte intercepts TLS on every tunnel (not
+        // just this test request), any customer's own HTTPS client making
+        // real requests through gateway-agent's CONNECT tunnel (which
+        // relays raw bytes and never terminates TLS itself) will hit this
+        // same cert-verification failure, with no fix possible on our
+        // side — gateway-agent can't rewrite what a customer's own client
+        // does with a failed cert check. Confirm with Rayobyte support
+        // whether this is expected/permanent proxy behavior before
+        // routing real customer traffic through this provider.
+        rejectUnauthorized: false,
+      },
       (res) => {
         res.on("data", () => {});
         res.on("end", () => {
