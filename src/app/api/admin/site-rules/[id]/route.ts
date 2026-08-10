@@ -20,7 +20,13 @@ export async function PATCH(
 
   const rule = await prisma.siteRule.update({
     where: { id },
-    data: { ...parsed.data, label: parsed.data.label === "" ? null : parsed.data.label },
+    data: {
+      ...parsed.data,
+      label: parsed.data.label === "" ? null : parsed.data.label,
+      preferredProviderSlug:
+        parsed.data.preferredProviderSlug === "" ? null : parsed.data.preferredProviderSlug,
+      region: parsed.data.region === "" ? null : parsed.data.region,
+    },
   });
 
   await logAdminAction({

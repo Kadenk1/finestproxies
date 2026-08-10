@@ -23,6 +23,32 @@ export const siteRuleSchema = z.object({
   issuanceQualityCheckMaxAttempts: z.coerce.number().int().min(1).max(10).nullable().optional(),
   rotationQualityCheckMaxAttempts: z.coerce.number().int().min(1).max(10).nullable().optional(),
   defaultStickyWindowMins: z.coerce.number().int().min(1).max(1440).nullable().optional(),
+
+  // ---- Routing profile --------------------------------------------------
+  preferredProviderSlug: z.string().trim().max(120).nullable().optional().or(z.literal("")),
+  // Comma-separated in the form UI, normalized to an array here — matches
+  // how a non-technical admin would naturally type "iproyal, bright-data"
+  // rather than building a multi-select from live provider slugs.
+  fallbackProviderSlugs: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => {
+      if (!v) return [];
+      const list = Array.isArray(v) ? v : v.split(",");
+      return list.map((s) => s.trim()).filter(Boolean);
+    }),
+  region: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .max(2)
+    .nullable()
+    .optional()
+    .or(z.literal("")),
+  connectionTimeoutMs: z.coerce.number().int().min(1000).max(120_000).nullable().optional(),
+  maxConnectionAttempts: z.coerce.number().int().min(1).max(10).nullable().optional(),
+  concurrencyLimit: z.coerce.number().int().min(1).nullable().optional(),
+  routingWeight: z.coerce.number().int().min(1).max(1000).nullable().optional(),
 });
 
 export type SiteRuleInput = z.infer<typeof siteRuleSchema>;

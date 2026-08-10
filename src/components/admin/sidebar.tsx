@@ -17,6 +17,7 @@ import {
   LifeBuoy,
   Settings,
   ScrollText,
+  Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brand } from "@/lib/config/brand";
@@ -33,6 +34,7 @@ export const adminNavLinks = [
   { href: "/admin/providers", label: "Providers", icon: Building2 },
   { href: "/admin/gateways", label: "Gateways", icon: Server },
   { href: "/admin/routes", label: "Routes", icon: RouteIcon },
+  { href: "/admin/destination-health", label: "Destination Health", icon: Gauge },
   { href: "/admin/usage", label: "Usage", icon: Activity },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
   { href: "/admin/coupons", label: "Coupons", icon: Ticket },

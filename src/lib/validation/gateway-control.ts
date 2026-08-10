@@ -39,3 +39,26 @@ export const resolveCredentialSchema = z.object({
 });
 
 export type ResolveCredentialInput = z.infer<typeof resolveCredentialSchema>;
+
+// gateway-agent's own classifyError() classes, plus TLS — see
+// connection-health.ts's ConnectionEvent doc comment for how these feed
+// per-destination-per-pool scoring.
+const errorClassEnum = z.enum(["TIMEOUT", "DNS", "TCP", "TLS", "UPSTREAM_REJECTED", "OTHER"]);
+
+const connectionStatEventSchema = z.object({
+  targetHost: z.string().trim().min(1).max(255),
+  providerSlug: z.string().trim().min(1).max(120),
+  success: z.boolean(),
+  errorClass: errorClassEnum.optional(),
+  connectLatencyMs: z.number().min(0),
+  bytesUploaded: z.number().min(0).default(0),
+  bytesDownloaded: z.number().min(0).default(0),
+  sessionId: z.string().trim().min(1).max(255).optional(),
+  occurredAt: z.string().datetime().optional(),
+});
+
+export const connectionStatsIngestSchema = z.object({
+  events: z.array(connectionStatEventSchema).min(1).max(500),
+});
+
+export type ConnectionStatsIngestInput = z.infer<typeof connectionStatsIngestSchema>;

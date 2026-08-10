@@ -190,21 +190,28 @@ async function loadEnabledSiteRules(): Promise<SiteRuleRow[]> {
  * rules, CDN path rules) resolve overlapping matches, so it stays
  * predictable as more rules get added.
  */
-export async function getEffectiveGatewayTuning(hostname?: string): Promise<GatewayTuning> {
-  const base = await getGatewayTuning();
-  if (!hostname) return base;
-
-  const rules = await loadEnabledSiteRules();
+/** Exact match beats wildcard; among equally-specific matches, the longer
+ * (more specific) pattern wins. Shared by every "which rule applies to this
+ * hostname" call site so they all resolve overlapping rules identically. */
+function pickBestMatchingRule<T extends { pattern: string }>(rules: T[], hostname: string): T | null {
   const matches = rules.filter((r) => siteRuleMatches(r.pattern, hostname));
-  if (matches.length === 0) return base;
-
+  if (matches.length === 0) return null;
   matches.sort((a, b) => {
     const aWildcard = a.pattern.startsWith("*.") ? 1 : 0;
     const bWildcard = b.pattern.startsWith("*.") ? 1 : 0;
     if (aWildcard !== bWildcard) return aWildcard - bWildcard; // exact (0) before wildcard (1)
     return b.pattern.length - a.pattern.length; // longer/more specific pattern first as a tiebreak
   });
-  const rule = matches[0];
+  return matches[0];
+}
+
+export async function getEffectiveGatewayTuning(hostname?: string): Promise<GatewayTuning> {
+  const base = await getGatewayTuning();
+  if (!hostname) return base;
+
+  const rules = await loadEnabledSiteRules();
+  const rule = pickBestMatchingRule(rules, hostname);
+  if (!rule) return base;
 
   return {
     qualityCheckEnabled: rule.qualityCheckEnabled ?? base.qualityCheckEnabled,
@@ -213,4 +220,66 @@ export async function getEffectiveGatewayTuning(hostname?: string): Promise<Gate
     rotationQualityCheckMaxAttempts: rule.rotationQualityCheckMaxAttempts ?? base.rotationQualityCheckMaxAttempts,
     defaultStickyWindowMins: rule.defaultStickyWindowMins ?? base.defaultStickyWindowMins,
   };
+}
+
+/** The bucket every destination-aware stat/health/routing lookup groups by
+ * — the matched SiteRule's pattern, or the literal "default" if no enabled
+ * rule matches. Using this (not the raw hostname) is what keeps
+ * "target.com" and "checkout.target.com" and "api.target.com" from
+ * fragmenting into separate stats/health buckets when a "*.target.com"
+ * rule covers all of them. */
+export const DEFAULT_DESTINATION_PATTERN = "default";
+
+export async function resolveDestinationPattern(hostname: string): Promise<string> {
+  const rules = await loadEnabledSiteRules();
+  const rule = pickBestMatchingRule(rules, hostname);
+  return rule?.pattern ?? DEFAULT_DESTINATION_PATTERN;
+}
+
+// ---- Routing profile (preferred/fallback pools, region, limits) ----------
+
+export interface SiteRoutingProfile {
+  pattern: string;
+  preferredProviderSlug: string | null;
+  fallbackProviderSlugs: string[];
+  region: string | null;
+  connectionTimeoutMs: number | null;
+  maxConnectionAttempts: number | null;
+  concurrencyLimit: number | null;
+  routingWeight: number | null;
+}
+
+const ROUTING_PROFILE_CACHE_TTL_MS = 30_000;
+let routingProfileCache: { rows: SiteRoutingProfile[]; expiresAt: number } | null = null;
+
+async function loadEnabledRoutingProfiles(): Promise<SiteRoutingProfile[]> {
+  if (routingProfileCache && routingProfileCache.expiresAt > Date.now()) return routingProfileCache.rows;
+  try {
+    const rows = await prisma.siteRule.findMany({
+      where: { enabled: true },
+      select: {
+        pattern: true,
+        preferredProviderSlug: true,
+        fallbackProviderSlugs: true,
+        region: true,
+        connectionTimeoutMs: true,
+        maxConnectionAttempts: true,
+        concurrencyLimit: true,
+        routingWeight: true,
+      },
+    });
+    routingProfileCache = { rows, expiresAt: Date.now() + ROUTING_PROFILE_CACHE_TTL_MS };
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+/** Resolves the routing profile for a destination hostname — null when no
+ * enabled SiteRule matches, meaning "use the global/default routing
+ * behavior with no per-site preferences." Every field on a matched profile
+ * can still independently be null (no override for that one knob). */
+export async function getSiteRoutingProfile(hostname: string): Promise<SiteRoutingProfile | null> {
+  const rows = await loadEnabledRoutingProfiles();
+  return pickBestMatchingRule(rows, hostname);
 }

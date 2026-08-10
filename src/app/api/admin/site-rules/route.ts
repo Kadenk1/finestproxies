@@ -23,7 +23,12 @@ export async function POST(request: Request) {
   }
 
   const rule = await prisma.siteRule.create({
-    data: { ...parsed.data, label: parsed.data.label || null },
+    data: {
+      ...parsed.data,
+      label: parsed.data.label || null,
+      preferredProviderSlug: parsed.data.preferredProviderSlug || null,
+      region: parsed.data.region || null,
+    },
   });
 
   await logAdminAction({

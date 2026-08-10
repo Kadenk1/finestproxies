@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { decryptSecret } from "@/lib/crypto/secrets";
 import { getProviderAdapter } from "@/services/providers/registry";
 import { resolveActiveUpstreamSession } from "@/services/gateway/gateway-service";
+import { getSiteRoutingProfile } from "@/lib/config/gateway-tuning";
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -69,12 +70,24 @@ export async function POST(request: Request) {
       data: { lastUsedAt: new Date() },
     });
 
+    // Per-destination connection timeout override, if the matched SiteRule
+    // (if any) sets one — gateway-agent has no DB access, so this is the
+    // only place it can learn about a per-site timeout preference.
+    const routingProfile = parsed.data.targetHost
+      ? await getSiteRoutingProfile(parsed.data.targetHost)
+      : null;
+
     return NextResponse.json({
       upstream,
       credentialUsername: credential.username,
       gatewayHostname: credential.gateway.hostname,
       sessionId: session.id,
       exitCountry: session.exitCountry,
+      // Lets the agent tag its connection-stats reports with which pool
+      // actually served the connection, without the agent needing any DB
+      // access itself — see connection-stats/route.ts.
+      providerSlug: session.provider.slug,
+      connectionTimeoutMs: routingProfile?.connectionTimeoutMs ?? null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to resolve upstream connection.";

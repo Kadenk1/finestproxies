@@ -17,6 +17,11 @@ const CONTROL_API_BASE = process.env.CONTROL_API_BASE || "http://app:3000";
 const AGENT_SECRET = process.env.GATEWAY_AGENT_SECRET;
 const GATEWAY_HOSTNAME = process.env.GATEWAY_HOSTNAME || "proxy.finestproxies.com";
 const PORT = Number(process.env.PORT || 8000);
+// Overridable per-destination via a SiteRule's connectionTimeoutMs (see
+// gateway-tuning.ts) — /resolve returns null when no rule sets one, in
+// which case every call site here falls back to this same default that
+// was previously just hardcoded inline.
+const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
 
 if (!AGENT_SECRET) {
   console.error("GATEWAY_AGENT_SECRET is not set — refusing to start.");
@@ -36,8 +41,73 @@ function classifyError(err, context) {
     return "TCP";
   }
   if (code === "ETIMEDOUT") return "TIMEOUT";
+  // Only reachable if some future code path dials an upstream leg with
+  // tls.connect() directly — today every upstream socket is plain
+  // net.connect() (CONNECT is relayed as opaque bytes, this process never
+  // terminates TLS itself), so this branch is inert but correct: the
+  // gateway has no visibility into a TLS handshake between the client and
+  // the target through an established tunnel, only ever into its own
+  // upstream leg, and only if that leg is ever TLS itself.
+  if (code === "EPROTO" || (typeof code === "string" && code.startsWith("ERR_TLS_")) || (typeof code === "string" && code.startsWith("CERT_"))) {
+    return "TLS";
+  }
   return "OTHER";
 }
+
+// ---- Connection-stats reporting (destination-aware routing) -------------
+//
+// Buffered locally and flushed periodically (see STATS_FLUSH_INTERVAL_MS)
+// rather than one HTTP call per connection — this process handles many
+// concurrent connections and a per-connection call to the control API
+// would be a meaningful load multiplier for no benefit, since nothing
+// downstream (recomputeHealthScores) needs per-event latency. Never
+// blocks/slows the actual client connection: recordConnectionStat only
+// pushes into an in-memory array, the flush happens on its own timer.
+
+const STATS_FLUSH_INTERVAL_MS = 10_000;
+const STATS_BATCH_MAX = 500; // matches connectionStatsIngestSchema's max array length
+let statsBuffer = [];
+
+function recordConnectionStat({
+  targetHost,
+  providerSlug,
+  success,
+  errorClass,
+  connectLatencyMs,
+  bytesUploaded,
+  bytesDownloaded,
+  sessionId,
+}) {
+  if (!targetHost || !providerSlug) return; // can't bucket a stat with no destination/pool — drop it rather than guess
+  statsBuffer.push({
+    targetHost,
+    providerSlug,
+    success,
+    errorClass: errorClass || undefined,
+    connectLatencyMs: Math.max(0, Math.round(connectLatencyMs)),
+    bytesUploaded: bytesUploaded || 0,
+    bytesDownloaded: bytesDownloaded || 0,
+    sessionId: sessionId || undefined,
+    occurredAt: new Date().toISOString(),
+  });
+  // Flush early if the buffer is getting large, rather than waiting for the
+  // timer and risking a batch bigger than the endpoint accepts.
+  if (statsBuffer.length >= STATS_BATCH_MAX) flushConnectionStats();
+}
+
+function flushConnectionStats() {
+  if (statsBuffer.length === 0) return;
+  const events = statsBuffer;
+  statsBuffer = [];
+  controlApiFetch("/api/gateway-control/connection-stats", { events }).catch((err) => {
+    console.error("connection-stats flush failed:", err.message);
+    // Dropped, not re-queued — these are rolling health stats, not billing
+    // data; losing one batch during a control-API blip doesn't need
+    // retry complexity, and re-queueing risks an unbounded buffer if the
+    // control API is down for a while.
+  });
+}
+setInterval(flushConnectionStats, STATS_FLUSH_INTERVAL_MS).unref();
 
 function logEvent(event, fields) {
   console.log(
@@ -193,6 +263,14 @@ function handleConnect(req, clientSocket, head) {
   let finished = false;
   let bytesUp = 0;
   let bytesDown = 0;
+  // Set once the CONNECT establishment attempt sequence resolves
+  // (success or final failure) — finish() reports the connection-stats
+  // event using whichever of these was recorded, carrying bandwidth
+  // totals that are only known once the connection actually closes. Kept
+  // as exactly one ConnectionEvent per connection attempt (not one at
+  // handshake-time and a separate one at close) so totalAttempts/success
+  // rate aren't double-counted.
+  let pendingConnectionStat = null;
 
   const [targetHost, targetPortStr] = req.url.split(":");
   const targetPort = targetPortStr || "443";
@@ -203,6 +281,9 @@ function handleConnect(req, clientSocket, head) {
     activeConnections--;
     if (gatewayHostname && credentialUsername) {
       reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+    }
+    if (pendingConnectionStat) {
+      recordConnectionStat({ ...pendingConnectionStat, bytesUploaded: bytesUp, bytesDownloaded: bytesDown });
     }
   };
 
@@ -225,7 +306,7 @@ function handleConnect(req, clientSocket, head) {
       .then((resolved) => {
         if (!resolved) return deny("407 Proxy Authentication Required");
 
-        const { upstream, gatewayHostname, credentialUsername, sessionId } = resolved;
+        const { upstream, gatewayHostname, credentialUsername, sessionId, providerSlug } = resolved;
         let handshakeDone = false;
         let attemptFailed = false;
 
@@ -255,13 +336,28 @@ function handleConnect(req, clientSocket, head) {
               durationMs: Date.now() - startedAtMs,
               retried: true,
             });
+            // Recorded once per whole attempt sequence (only once forceRotate's
+            // retry is exhausted), not once per sub-attempt — failover already
+            // happened above during upstream selection; this is the final
+            // outcome for the connection as a whole. finish() below is what
+            // actually reports it, once bandwidth totals are known.
+            pendingConnectionStat = {
+              targetHost,
+              providerSlug,
+              success: false,
+              errorClass,
+              connectLatencyMs: Date.now() - startedAtMs,
+              sessionId,
+            };
             clientSocket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
             finish(gatewayHostname, credentialUsername);
           }
         };
 
         const upstreamSocket = takeFromPool(upstream.host, upstream.port);
-        upstreamSocket.setTimeout(30_000, () => failAttempt("timeout"));
+        upstreamSocket.setTimeout(resolved.connectionTimeoutMs || DEFAULT_CONNECTION_TIMEOUT_MS, () =>
+          failAttempt("timeout"),
+        );
 
         onceConnected(upstreamSocket, () => {
           const upstreamAuth = Buffer.from(`${upstream.username}:${upstream.password}`).toString(
@@ -294,15 +390,25 @@ function handleConnect(req, clientSocket, head) {
           }
 
           handshakeDone = true;
+          const establishedDurationMs = Date.now() - startedAtMs;
           logEvent("connect_established", {
             username: auth.username,
             sessionId,
             destination: `${targetHost}:${targetPort}`,
             upstream: `${upstream.host}:${upstream.port}`,
             connectStatusCode,
-            durationMs: Date.now() - startedAtMs,
+            durationMs: establishedDurationMs,
             retried: forceRotate,
           });
+          // Reported by finish() once the connection closes, so bandwidth
+          // totals are included in the same event rather than a second one.
+          pendingConnectionStat = {
+            targetHost,
+            providerSlug,
+            success: true,
+            connectLatencyMs: establishedDurationMs,
+            sessionId,
+          };
           clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n", () => {
             if (head && head.length) {
               bytesUp += head.length;
@@ -433,7 +539,8 @@ async function handleHttpRequest(req, res) {
         res.end();
         return done();
       }
-      const { upstream, gatewayHostname, credentialUsername, sessionId } = resolved;
+      const { upstream, gatewayHostname, credentialUsername, sessionId, providerSlug, connectionTimeoutMs } =
+        resolved;
 
       const headers = { ...req.headers };
       delete headers["proxy-connection"];
@@ -450,7 +557,9 @@ async function handleHttpRequest(req, res) {
         headers,
         agent: httpUpstreamAgent,
       });
-      proxyReq.setTimeout(30_000, () => proxyReq.destroy(new Error("timeout")));
+      proxyReq.setTimeout(connectionTimeoutMs || DEFAULT_CONNECTION_TIMEOUT_MS, () =>
+        proxyReq.destroy(new Error("timeout")),
+      );
 
       proxyReq.on("response", (upstreamRes) => {
         // A same-IP block/CAPTCHA challenge is only worth detecting (and
@@ -460,6 +569,8 @@ async function handleHttpRequest(req, res) {
         const canCheckForBlock =
           !forceRotate && canBufferForRetry && BLOCK_STATUS_CODES.has(upstreamRes.statusCode);
 
+        const establishedDurationMs = Date.now() - startedAtMs;
+
         if (!canCheckForBlock) {
           logEvent("http_established", {
             username: auth.username,
@@ -467,7 +578,7 @@ async function handleHttpRequest(req, res) {
             destination: req.url,
             upstream: `${upstream.host}:${upstream.port}`,
             status: upstreamRes.statusCode,
-            durationMs: Date.now() - startedAtMs,
+            durationMs: establishedDurationMs,
             retried: forceRotate,
             streamedBody: !canBufferForRetry,
           });
@@ -477,6 +588,15 @@ async function handleHttpRequest(req, res) {
           upstreamRes.on("end", () => {
             done();
             reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+            recordConnectionStat({
+              targetHost: requestHostname,
+              providerSlug,
+              success: true,
+              connectLatencyMs: establishedDurationMs,
+              bytesUploaded: bytesUp,
+              bytesDownloaded: bytesDown,
+              sessionId,
+            });
           });
           return;
         }
@@ -490,13 +610,14 @@ async function handleHttpRequest(req, res) {
 
         const finishPassthrough = (firstChunk) => {
           decided = true;
+          const finishDurationMs = Date.now() - startedAtMs;
           logEvent("http_established", {
             username: auth.username,
             sessionId,
             destination: req.url,
             upstream: `${upstream.host}:${upstream.port}`,
             status: upstreamRes.statusCode,
-            durationMs: Date.now() - startedAtMs,
+            durationMs: finishDurationMs,
             retried: forceRotate,
             streamedBody: !canBufferForRetry,
           });
@@ -510,6 +631,15 @@ async function handleHttpRequest(req, res) {
           upstreamRes.on("end", () => {
             done();
             reportUsage(gatewayHostname, credentialUsername, bytesUp, bytesDown);
+            recordConnectionStat({
+              targetHost: requestHostname,
+              providerSlug,
+              success: true,
+              connectLatencyMs: finishDurationMs,
+              bytesUploaded: bytesUp,
+              bytesDownloaded: bytesDown,
+              sessionId,
+            });
           });
         };
 
@@ -557,6 +687,7 @@ async function handleHttpRequest(req, res) {
           attempt(true);
           return;
         }
+        const failedDurationMs = Date.now() - startedAtMs;
         logEvent("http_failed", {
           username: auth.username,
           sessionId,
@@ -564,10 +695,20 @@ async function handleHttpRequest(req, res) {
           upstream: `${upstream.host}:${upstream.port}`,
           errorClass,
           reason: err.message,
-          durationMs: Date.now() - startedAtMs,
+          durationMs: failedDurationMs,
           retried: forceRotate,
         });
         done();
+        recordConnectionStat({
+          targetHost: requestHostname,
+          providerSlug,
+          success: false,
+          errorClass,
+          connectLatencyMs: failedDurationMs,
+          bytesUploaded: bytesUp,
+          bytesDownloaded: bytesDown,
+          sessionId,
+        });
         try {
           res.writeHead(502);
           res.end("Bad Gateway");
@@ -632,10 +773,14 @@ async function handleUpgrade(req, clientSocket, head) {
     clientSocket.end("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
     return finish();
   }
-  const { upstream, gatewayHostname, credentialUsername, sessionId } = resolved;
+  const { upstream, gatewayHostname, credentialUsername, sessionId, providerSlug, connectionTimeoutMs } =
+    resolved;
+  let upgradeEstablished = false;
 
   const upstreamSocket = net.connect(upstream.port, upstream.host);
-  upstreamSocket.setTimeout(30_000, () => upstreamSocket.destroy(new Error("timeout")));
+  upstreamSocket.setTimeout(connectionTimeoutMs || DEFAULT_CONNECTION_TIMEOUT_MS, () =>
+    upstreamSocket.destroy(new Error("timeout")),
+  );
 
   upstreamSocket.once("connect", () => {
     const headers = { ...req.headers };
@@ -650,12 +795,21 @@ async function handleUpgrade(req, clientSocket, head) {
       bytesUp += head.length;
       upstreamSocket.write(head);
     }
+    upgradeEstablished = true;
+    const establishedDurationMs = Date.now() - startedAtMs;
     logEvent("upgrade_established", {
       username: auth.username,
       sessionId,
       destination: req.url,
       upstream: `${upstream.host}:${upstream.port}`,
-      durationMs: Date.now() - startedAtMs,
+      durationMs: establishedDurationMs,
+    });
+    recordConnectionStat({
+      targetHost: requestHostname,
+      providerSlug,
+      success: true,
+      connectLatencyMs: establishedDurationMs,
+      sessionId,
     });
     clientSocket.on("data", (d) => (bytesUp += d.length));
     upstreamSocket.on("data", (d) => (bytesDown += d.length));
@@ -664,15 +818,30 @@ async function handleUpgrade(req, clientSocket, head) {
   });
 
   upstreamSocket.on("error", (err) => {
+    const errorClass = classifyError(err, err.message);
     logEvent("upgrade_failed", {
       username: auth.username,
       sessionId,
       destination: req.url,
       upstream: `${upstream.host}:${upstream.port}`,
-      errorClass: classifyError(err, err.message),
+      errorClass,
       reason: err.message,
       durationMs: Date.now() - startedAtMs,
     });
+    // Only a pre-establishment failure counts as a failed connection
+    // attempt for routing purposes — an error on an already-established
+    // tunnel (e.g. the client's WS session just ending) isn't a connect
+    // failure, same distinction handleConnect makes.
+    if (!upgradeEstablished) {
+      recordConnectionStat({
+        targetHost: requestHostname,
+        providerSlug,
+        success: false,
+        errorClass,
+        connectLatencyMs: Date.now() - startedAtMs,
+        sessionId,
+      });
+    }
     clientSocket.destroy();
     finish(gatewayHostname, credentialUsername);
   });

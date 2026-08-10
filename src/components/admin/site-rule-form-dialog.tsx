@@ -67,12 +67,12 @@ export function SiteRuleFormDialog() {
       <Button onClick={() => setOpen(true)} variant="outline" size="sm">
         <Plus className="h-4 w-4" /> New site rule
       </Button>
-      <DialogContent className="max-w-md sm:max-w-md">
+      <DialogContent className="max-w-md sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New site rule</DialogTitle>
           <DialogDescription>
-            Overrides the global gateway tuning for a specific destination. Leave a field blank to keep
-            using the global default for it.
+            Overrides the global gateway tuning and routing for a specific destination. Leave a field blank
+            to keep using the global default for it.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -85,42 +85,103 @@ export function SiteRuleFormDialog() {
             <Label>Label (optional)</Label>
             <Input {...register("label")} placeholder="Target — reputation sensitive" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="space-y-3 rounded-lg border border-border/70 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Quality checks</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Issuance max attempts</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  {...register("issuanceQualityCheckMaxAttempts")}
+                  placeholder="default"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Rotation max attempts</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  {...register("rotationQualityCheckMaxAttempts")}
+                  placeholder="default"
+                />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label>Issuance max attempts</Label>
+              <Label>Default sticky window (mins)</Label>
               <Input
                 type="number"
                 min={1}
-                max={10}
-                {...register("issuanceQualityCheckMaxAttempts")}
+                max={1440}
+                {...register("defaultStickyWindowMins")}
                 placeholder="default"
               />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Enabled/rotation toggles can be adjusted after creating the rule, from its row in the table
+              below.
+            </p>
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-border/70 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Routing profile</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Preferred pool</Label>
+                <Input {...register("preferredProviderSlug")} placeholder="e.g. iproyal" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Region</Label>
+                <Input {...register("region")} placeholder="US" maxLength={2} />
+              </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Rotation max attempts</Label>
-              <Input
-                type="number"
-                min={1}
-                max={10}
-                {...register("rotationQualityCheckMaxAttempts")}
-                placeholder="default"
-              />
+              <Label>Fallback pools</Label>
+              <Input {...register("fallbackProviderSlugs")} placeholder="bright-data, mock-provider" />
+              <p className="text-xs text-muted-foreground">Comma-separated provider slugs, in order.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Connection timeout (ms)</Label>
+                <Input
+                  type="number"
+                  min={1000}
+                  max={120_000}
+                  {...register("connectionTimeoutMs")}
+                  placeholder="30000"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Max connection attempts</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  {...register("maxConnectionAttempts")}
+                  placeholder="default"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Concurrency limit</Label>
+                <Input type="number" min={1} {...register("concurrencyLimit")} placeholder="unlimited" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Routing weight</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  {...register("routingWeight")}
+                  placeholder="100"
+                />
+              </div>
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Default sticky window (mins)</Label>
-            <Input
-              type="number"
-              min={1}
-              max={1440}
-              {...register("defaultStickyWindowMins")}
-              placeholder="default"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Quality-check enabled/rotation toggles can be adjusted after creating the rule, from its row in
-            the table below.
-          </p>
 
           <DialogFooter>
             <Button type="submit" disabled={submitting}>

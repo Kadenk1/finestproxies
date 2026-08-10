@@ -398,7 +398,7 @@ async function resolveActiveUpstreamSessionLocked(
   }
 
   const rotateReason = forceRotate ? "forceRotate (retry after failure)" : "sticky window expired";
-  const selected = await selectRoute(credential.productId, credential.country ?? undefined);
+  const selected = await selectRoute(credential.productId, credential.country ?? undefined, targetHost);
   const route = selected
     ? await prisma.gatewayRoute.findUnique({
         where: { id: selected.routeId },

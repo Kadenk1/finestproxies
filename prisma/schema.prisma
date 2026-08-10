@@ -753,8 +753,76 @@ model SiteRule {
   issuanceQualityCheckMaxAttempts  Int?
   rotationQualityCheckMaxAttempts  Int?
   defaultStickyWindowMins          Int?
+
+  // ---- Destination-aware routing profile -------------------------------
+  //
+  // Keyed by Provider.slug (a plain string, not a foreign key) — matches
+  // how the rest of the codebase already refers to upstream pools/providers
+  // (gateway-agent's logs, classifyExitIp, getProviderAdapter all key off
+  // the slug already). preferredProviderSlug/fallbackProviderSlugs are
+  // preferences the health-scoring router (see routing-engine.ts) weighs
+  // alongside live per-destination scores — not a hard override — so a
+  // preferred pool that's currently scoring badly for this destination can
+  // still lose to a fallback, same philosophy as the existing global
+  // selectRoute()'s priority/weight being inputs to a score, not absolutes.
+  /** Preferred upstream pool for this destination, by Provider.slug. Null = no preference, global routing applies. */
+  preferredProviderSlug            String?
+  /** Ordered fallback pools if the preferred one is unhealthy/unavailable for this destination, by Provider.slug. */
+  fallbackProviderSlugs            String[] @default([])
+  /** ISO country code to prefer for this destination's exit IPs, e.g. "US". Null = no preference. */
+  region                           String?
+  /** Per-destination connection timeout override, in ms. Null = gateway-agent's default (30s). */
+  connectionTimeoutMs              Int?
+  /** Max upstream-selection attempts before giving up on a connection for this destination. Null = existing single-retry default. */
+  maxConnectionAttempts            Int?
+  /** Caps concurrent active sessions for this destination across all credentials. Null = no limit. */
+  concurrencyLimit                 Int?
+  /** Relative weight this destination's traffic gets versus others when providers are shared/contended. Null = default weight (100). */
+  routingWeight                    Int?
+
   createdAt                        DateTime @default(now())
   updatedAt                        DateTime @updatedAt
 
   @@index([enabled])
+}
+
+/**
+ * One row per completed (or failed) CONNECT/tunnel attempt, reported by
+ * gateway-agent in small periodic batches (see
+ * POST /api/gateway-control/connection-stats) — the raw source of truth
+ * behind both the admin dashboard's per-destination/per-pool stats and the
+ * rolling health scores routing-engine.ts reads from Redis (see
+ * connection-health.ts; this table is never queried on the live routing
+ * path, only by the background scorer and the admin stats UI).
+ *
+ * destinationPattern is the SiteRule pattern this event's hostname matched
+ * (or the literal string "default" if no rule matched) — grouping at the
+ * SAME granularity SiteRule/routing decisions use, rather than raw
+ * hostnames, so a site with many subdomains doesn't fragment its stats
+ * across dozens of buckets. providerSlug identifies the upstream pool,
+ * same slug convention as SiteRule's provider fields above.
+ */
+model ConnectionEvent {
+  id                 String   @id @default(uuid())
+  destinationPattern String
+  providerSlug       String
+  /** True if the CONNECT tunnel was established (upstream returned 200) — independent of what happened after, per the "no HTTP replay after tunnel establishment" rule; this table only ever records tunnel-establishment outcomes. */
+  success            Boolean
+  /** One of TIMEOUT | DNS | TCP | TLS | UPSTREAM_REJECTED | OTHER — mirrors gateway-agent's existing classifyError() classes plus a TLS split where observable. Null when success is true. */
+  errorClass         String?
+  connectLatencyMs   Int
+  bytesUploaded      BigInt   @default(0)
+  bytesDownloaded    BigInt   @default(0)
+  /** The gateway-agent-reported session id (same id ProxySession/logEvent
+   * already use) this connection belonged to. Not a foreign key — sessions
+   * aren't destination-scoped, so this is only ever used to COUNT distinct
+   * recent sessions per destination+pool for the "active sessions" stat,
+   * never joined against ProxySession directly. Nullable since a
+   * credential-resolve failure (407/502 before a session was ever
+   * assigned) has no session to attribute the event to. */
+  sessionId          String?
+  occurredAt         DateTime @default(now())
+
+  @@index([destinationPattern, providerSlug, occurredAt])
+  @@index([occurredAt])
 }
