@@ -70,7 +70,15 @@ async function controlApiFetch(path, body) {
 const resolveCache = new Map(); // username -> { data, expiresAt }
 const CACHE_TTL_MS = 45_000;
 
-async function resolveCredential(username, password, forceRotate = false) {
+// targetHost is intentionally NOT part of the cache key — it's sent so the
+// app can apply a per-site SiteRule override on a cache-miss/actual
+// resolve, not to fragment this cache per-destination (that would mean a
+// hit to the control API on every single new site a client requests,
+// defeating the point of caching at all). A per-site rule change may take
+// up to CACHE_TTL_MS to apply to a credential mid-cache-window — the same
+// staleness this cache already accepts for any other credential-state
+// change.
+async function resolveCredential(username, password, forceRotate = false, targetHost = undefined) {
   if (!forceRotate) {
     const cached = resolveCache.get(username);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
@@ -80,6 +88,7 @@ async function resolveCredential(username, password, forceRotate = false) {
     username,
     password,
     forceRotate,
+    targetHost,
   }).catch(() => ({ ok: false, data: null }));
   if (!ok || !data) return null;
 
@@ -212,7 +221,7 @@ function handleConnect(req, clientSocket, head) {
   // genuinely unreachable (or blocking us specifically) shouldn't retry
   // forever.
   function attempt(forceRotate) {
-    resolveCredential(auth.username, auth.password, forceRotate)
+    resolveCredential(auth.username, auth.password, forceRotate, targetHost)
       .then((resolved) => {
         if (!resolved) return deny("407 Proxy Authentication Required");
 
@@ -389,8 +398,9 @@ async function handleHttpRequest(req, res) {
     return done();
   }
 
+  let requestHostname;
   try {
-    new URL(req.url);
+    requestHostname = new URL(req.url).hostname;
   } catch {
     res.writeHead(400);
     res.end("Bad Request — expected absolute-URI");
@@ -417,7 +427,7 @@ async function handleHttpRequest(req, res) {
   }
 
   function attempt(forceRotate) {
-    resolveCredential(auth.username, auth.password, forceRotate).then((resolved) => {
+    resolveCredential(auth.username, auth.password, forceRotate, requestHostname).then((resolved) => {
       if (!resolved) {
         res.writeHead(407);
         res.end();
@@ -606,7 +616,18 @@ async function handleUpgrade(req, clientSocket, head) {
     return finish();
   }
 
-  const resolved = await resolveCredential(auth.username, auth.password).catch(() => null);
+  let requestHostname;
+  try {
+    requestHostname = new URL(req.url).hostname;
+  } catch {
+    // Malformed URL — resolveCredential still runs below (this handler
+    // doesn't 400 on it, unlike handleHttpRequest), just without a
+    // per-site rule lookup for this one request.
+  }
+
+  const resolved = await resolveCredential(auth.username, auth.password, false, requestHostname).catch(
+    () => null,
+  );
   if (!resolved) {
     clientSocket.end("HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
     return finish();

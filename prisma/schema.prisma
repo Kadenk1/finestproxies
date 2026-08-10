@@ -728,3 +728,33 @@ model SystemSetting {
   description String?
   updatedAt   DateTime @updatedAt
 }
+
+/**
+ * Per-destination override of the global gateway tuning defaults (see
+ * gateway-tuning.ts) — e.g. a site known to be more reputation-sensitive
+ * can get more quality-check attempts, or a latency-sensitive one can have
+ * rotation-time checking turned off, without changing behavior for every
+ * other target. Any field left null falls back to the live global default
+ * for that field rather than a fixed value, so a rule can override just
+ * one knob without having to pin every other one.
+ *
+ * Matched by hostname against `pattern`: an exact hostname match wins over
+ * a suffix/wildcard match (see gateway-tuning.ts's matchSiteRule) — "*"
+ * prefix means "this domain and all its subdomains."
+ */
+model SiteRule {
+  id                               String   @id @default(uuid())
+  /** e.g. "target.com" (exact) or "*.target.com" (that domain + subdomains). */
+  pattern                          String   @unique
+  label                            String?
+  enabled                          Boolean  @default(true)
+  qualityCheckEnabled              Boolean?
+  qualityCheckOnRotation           Boolean?
+  issuanceQualityCheckMaxAttempts  Int?
+  rotationQualityCheckMaxAttempts  Int?
+  defaultStickyWindowMins          Int?
+  createdAt                        DateTime @default(now())
+  updatedAt                        DateTime @updatedAt
+
+  @@index([enabled])
+}

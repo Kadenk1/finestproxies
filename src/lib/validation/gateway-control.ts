@@ -31,6 +31,11 @@ export const resolveCredentialSchema = z.object({
   password: z.string().min(1),
   /** Set by the gateway agent retrying after the current exit IP failed. */
   forceRotate: z.boolean().optional(),
+  /** The destination host of the client's CONNECT/request, e.g.
+   * "checkout.target.com". Optional and best-effort — used only to look up
+   * a per-site SiteRule override (see gateway-tuning.ts); omitting it just
+   * means the global tuning default applies, same as before this existed. */
+  targetHost: z.string().trim().min(1).max(255).optional(),
 });
 
 export type ResolveCredentialInput = z.infer<typeof resolveCredentialSchema>;

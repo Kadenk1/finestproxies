@@ -52,7 +52,11 @@ export async function POST(request: Request) {
     // Transparently mints a fresh upstream session (new exit IP) if this is
     // STICKY and the current one has outlived sessionDurationMins — the
     // credential itself has no expiry tied to that window.
-    const session = await resolveActiveUpstreamSession(credential.id, parsed.data.forceRotate);
+    const session = await resolveActiveUpstreamSession(
+      credential.id,
+      parsed.data.forceRotate,
+      parsed.data.targetHost,
+    );
     if (!session.upstreamSessionRef) {
       return NextResponse.json({ error: "No active session for this credential" }, { status: 404 });
     }

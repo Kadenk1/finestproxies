@@ -6,6 +6,7 @@ import { getProviderAdapter } from "@/services/providers/registry";
 import { selectRoute } from "@/services/routing/routing-engine";
 import { classifyExitIp, isLowReputation } from "@/services/gateway/exit-ip-classifier";
 import { withLock } from "@/lib/security/rate-limit";
+import { getGatewayTuning, getEffectiveGatewayTuning } from "@/lib/config/gateway-tuning";
 import { gatewayPorts } from "@/lib/config/brand";
 import type { ProxyProtocol, ProxySessionType } from "@/generated/prisma/enums";
 
@@ -133,9 +134,15 @@ export async function generateProxyCredentials(
   // turn a ~4s request into many minutes and burn real upstream bandwidth
   // on retries. Only applied below this threshold; larger batches skip the
   // check entirely and get whatever the pool hands back, same as before.
+  //
+  // Attempt count and the enabled/disabled switch are live-tunable from
+  // /admin/settings (see gateway-tuning.ts) rather than fixed constants —
+  // an admin can turn this off or shorten it without a redeploy if it's
+  // adding more latency than it's worth for a given traffic pattern.
   const QUALITY_CHECK_MAX_QUANTITY = 25;
-  const QUALITY_CHECK_MAX_ATTEMPTS = 4;
-  const shouldCheckQuality = product.type === "RESIDENTIAL" && quantity <= QUALITY_CHECK_MAX_QUANTITY;
+  const tuning = await getGatewayTuning();
+  const shouldCheckQuality =
+    tuning.qualityCheckEnabled && product.type === "RESIDENTIAL" && quantity <= QUALITY_CHECK_MAX_QUANTITY;
 
   const mintUpstream = () =>
     adapter.createProxyCredential({
@@ -153,7 +160,7 @@ export async function generateProxyCredentials(
       let upstream = await mintUpstream();
 
       if (shouldCheckQuality) {
-        for (let attempt = 1; attempt < QUALITY_CHECK_MAX_ATTEMPTS; attempt++) {
+        for (let attempt = 1; attempt < tuning.issuanceQualityCheckMaxAttempts; attempt++) {
           const connection = await adapter.getUpstreamConnection(upstream.upstreamSessionRef);
           const classification = await classifyExitIp(
             connection.host,
@@ -173,7 +180,7 @@ export async function generateProxyCredentials(
               ? "a known VPN/proxy IP"
               : "a datacenter/hosting-range IP";
           console.log(
-            `[gateway] exit IP ${classification.ip} (${classification.isp}) is ${reason}, retrying (attempt ${attempt}/${QUALITY_CHECK_MAX_ATTEMPTS - 1})`,
+            `[gateway] exit IP ${classification.ip} (${classification.isp}) is ${reason}, retrying (attempt ${attempt}/${tuning.issuanceQualityCheckMaxAttempts - 1})`,
           );
           upstream = await mintUpstream();
         }
@@ -341,19 +348,29 @@ export function revealCredentialPassword(passwordEnc: string): string {
  * and independently rotates, splitting one browser session across several
  * exit IPs mid-flow. See withLock's doc comment for why that specifically
  * breaks third-party challenge widgets.
+ *
+ * targetHost (the destination of the client's CONNECT, e.g.
+ * "checkout.target.com") is optional and best-effort — when present, the
+ * quality-check behavior below uses the effective per-site tuning (see
+ * getEffectiveGatewayTuning / SiteRule) instead of always the global
+ * default, so a specific destination can be given more retry attempts, or
+ * have rotation-time checking turned off, without affecting every other
+ * target on the same gateway.
  */
 export async function resolveActiveUpstreamSession(
   credentialId: string,
   forceRotate = false,
+  targetHost?: string,
 ) {
   return withLock(`resolve-upstream:${credentialId}`, () =>
-    resolveActiveUpstreamSessionLocked(credentialId, forceRotate),
+    resolveActiveUpstreamSessionLocked(credentialId, forceRotate, targetHost),
   );
 }
 
 async function resolveActiveUpstreamSessionLocked(
   credentialId: string,
   forceRotate = false,
+  targetHost?: string,
 ) {
   const credential = await prisma.customerProxyCredential.findUniqueOrThrow({
     where: { id: credentialId },
@@ -420,13 +437,19 @@ async function resolveActiveUpstreamSessionLocked(
   let upstream = await mintUpstream();
 
   // Rotation is what a customer hits right after getting flagged/blocked —
-  // landing them on another low-reputation IP defeats the point. Bounded to
-  // 2 attempts (vs. 4 at issuance) since this runs inline on the customer's
-  // live request, not in a background batch; still fails open on a slow or
-  // unreachable classifier rather than adding latency for no benefit.
-  if (credential.product.type === "RESIDENTIAL") {
-    const ROTATE_QUALITY_CHECK_MAX_ATTEMPTS = 2;
-    for (let attempt = 1; attempt < ROTATE_QUALITY_CHECK_MAX_ATTEMPTS; attempt++) {
+  // landing them on another low-reputation IP defeats the point. But this
+  // runs INLINE on the customer's live request (not a background batch):
+  // each attempt is a real network round-trip to a third-party API before
+  // their page starts loading, so it's the most latency-sensitive of the
+  // two quality-check call sites. qualityCheckOnRotation lets an admin turn
+  // just this one off from /admin/settings — keeping the issuance-time
+  // check intact — if it's costing more in perceived slowness than it's
+  // worth for a given traffic pattern, without a redeploy. Resolved
+  // per-destination (targetHost) so a specific site can override the
+  // global default via a SiteRule.
+  const tuning = await getEffectiveGatewayTuning(targetHost);
+  if (tuning.qualityCheckEnabled && tuning.qualityCheckOnRotation && credential.product.type === "RESIDENTIAL") {
+    for (let attempt = 1; attempt < tuning.rotationQualityCheckMaxAttempts; attempt++) {
       const connection = await adapter.getUpstreamConnection(upstream.upstreamSessionRef);
       const classification = await classifyExitIp(
         connection.host,
@@ -442,7 +465,7 @@ async function resolveActiveUpstreamSessionLocked(
           ? "a known VPN/proxy IP"
           : "a datacenter/hosting-range IP";
       console.log(
-        `[gateway] rotated-to exit IP ${classification.ip} (${classification.isp}) is ${reason}, retrying (attempt ${attempt}/${ROTATE_QUALITY_CHECK_MAX_ATTEMPTS - 1})`,
+        `[gateway] rotated-to exit IP ${classification.ip} (${classification.isp}) is ${reason}, retrying (attempt ${attempt}/${tuning.rotationQualityCheckMaxAttempts - 1})`,
       );
       upstream = await mintUpstream();
     }
