@@ -33,12 +33,21 @@ if [ "$BEFORE_SCHEMA" != "$AFTER_SCHEMA" ]; then
   echo "!!   docker compose -f docker-compose.prod.yml run --rm -v \"\$(pwd)/prisma/migrations:/app/prisma/migrations\" app npx prisma migrate dev --name <describe_the_change> --create-only"
   echo "!!   cat prisma/migrations/*<describe_the_change>*/migration.sql   # READ THIS before continuing"
   echo "!!   docker compose -f docker-compose.prod.yml run --rm -v \"\$(pwd)/prisma/migrations:/app/prisma/migrations\" app npx prisma migrate deploy"
-  echo "!! Then re-run this script (or just: docker compose -f docker-compose.prod.yml up -d app gateway-agent) to restart the containers."
+  echo "!! Then re-run this script (or just: docker compose -f docker-compose.prod.yml up -d --force-recreate app gateway-agent) to restart the containers — --force-recreate matters, see the comment further down."
   exit 2
 fi
 
 echo "==> No schema change — restarting containers..."
-docker compose -f docker-compose.prod.yml up -d app gateway-agent
+# --force-recreate is required here, not optional: `up -d` alone only
+# recreates a container when Compose detects its CONFIG changed (env vars,
+# image tag, etc.) — a freshly rebuilt image under the same tag
+# (finestproxies-app:latest) does not trigger that, so a plain `up -d`
+# leaves the OLD container process running against the NEW image sitting
+# unused on disk. This bit us for real: a schema migration was applied
+# but `up -d` alone did not restart the app to pick up the code that
+# expected the new tables, and it silently kept erroring in the
+# background until a manual `restart` fixed it.
+docker compose -f docker-compose.prod.yml up -d --force-recreate app gateway-agent
 
 echo "==> Done. Recent logs:"
 docker compose -f docker-compose.prod.yml logs app gateway-agent --tail 15
