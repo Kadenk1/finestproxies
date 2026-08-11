@@ -17,10 +17,16 @@ const CONTROL_API_BASE = process.env.CONTROL_API_BASE || "http://app:3000";
 const AGENT_SECRET = process.env.GATEWAY_AGENT_SECRET;
 const GATEWAY_HOSTNAME = process.env.GATEWAY_HOSTNAME || "proxy.finestproxies.com";
 const PORT = Number(process.env.PORT || 8000);
-// Overridable without a redeploy — see the pre-warming pool section below
-// for why this needs to track real concurrent traffic, not stay a small
-// fixed constant.
-const UPSTREAM_POOL_SIZE = Number(process.env.UPSTREAM_POOL_SIZE || 60);
+// Overridable without a redeploy — see the pre-warming pool section below.
+// NOTE: raising this to 60 made IPRoyal latency WORSE in production
+// (717ms/3.9s avg/max -> 1227ms/8.9s), not better — pool_status logs
+// showed the pool repeatedly dropping to 0 between ticks with near-zero
+// cold-fallbacks, meaning IPRoyal was closing idle pooled sockets faster
+// than they could be reused, so the pool was churning (constantly
+// reopening ~60 sockets at once) rather than staying usefully warm. Rolled
+// back to a modest default pending a proper investigation into IPRoyal's
+// actual idle-connection tolerance before raising this again.
+const UPSTREAM_POOL_SIZE = Number(process.env.UPSTREAM_POOL_SIZE || 8);
 // Overridable per-destination via a SiteRule's connectionTimeoutMs (see
 // gateway-tuning.ts) — /resolve returns null when no rule sets one, in
 // which case every call site here falls back to this same default that

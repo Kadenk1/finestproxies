@@ -63,9 +63,15 @@ export async function PATCH(
  * UsageRecord are onDelete: Restrict, deliberately — deleting a provider
  * config must never silently wipe real session/usage history, so a
  * provider that has ever actually served traffic can't be deleted this
- * way at all; disable it (PATCH enabled: false) instead. The 409 here
+ * way by default; disable it (PATCH enabled: false) instead. The 409 here
  * surfaces that distinction instead of letting Postgres's raw FK error
  * leak to the client.
+ *
+ * ?force=true opts into deleting the ProxySession/UsageRecord rows first
+ * — an explicit, separate action from a normal delete, never the default,
+ * since it destroys real historical data (billing/audit-relevant usage
+ * records) rather than just config. Logged with the exact row counts
+ * removed so there's an audit trail of what was destroyed and by whom.
  */
 export async function DELETE(
   request: Request,
@@ -80,6 +86,30 @@ export async function DELETE(
     return NextResponse.json({ error: "Provider not found." }, { status: 404 });
   }
 
+  const force = new URL(request.url).searchParams.get("force") === "true";
+
+  if (force) {
+    const [{ count: sessionsDeleted }, { count: usageDeleted }] = await prisma.$transaction([
+      prisma.proxySession.deleteMany({ where: { providerId: id } }),
+      prisma.usageRecord.deleteMany({ where: { providerId: id } }),
+    ]);
+    await prisma.provider.delete({ where: { id } });
+
+    await logAdminAction({
+      actorId: session.user.id,
+      actorRole: session.user.role,
+      action: "provider.force_deleted",
+      targetType: "Provider",
+      targetId: id,
+      metadata: { slug: provider.slug, sessionsDeleted, usageRecordsDeleted: usageDeleted },
+      ipAddress: requestIp(request),
+    });
+
+    return NextResponse.json({
+      message: `Provider deleted (${sessionsDeleted} session(s), ${usageDeleted} usage record(s) permanently removed).`,
+    });
+  }
+
   try {
     await prisma.provider.delete({ where: { id } });
   } catch (err) {
@@ -90,7 +120,8 @@ export async function DELETE(
       return NextResponse.json(
         {
           error:
-            "This provider has session/usage history and can't be deleted — disable it instead (edit the provider, uncheck Enabled).",
+            "This provider has session/usage history and can't be deleted — disable it instead (edit the provider, uncheck Enabled), or force-delete to permanently discard that history too.",
+          hasHistory: true,
         },
         { status: 409 },
       );
