@@ -34,9 +34,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
+  // Fetches everything both this handler AND resolveActiveUpstreamSession
+  // need in one round trip (gateway for this handler's response, product +
+  // sessions for that function's rotation decision) — previously each
+  // fetched the same row independently, doubling DB load on every single
+  // resolve call for no benefit, which matters under concurrent load from
+  // many customers resolving at once.
   const credential = await prisma.customerProxyCredential.findUnique({
     where: { username: parsed.data.username },
-    include: { gateway: true },
+    include: {
+      gateway: true,
+      product: true,
+      sessions: { orderBy: { startedAt: "desc" }, take: 1, include: { provider: true } },
+    },
   });
   if (!credential) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
@@ -52,11 +62,14 @@ export async function POST(request: Request) {
   try {
     // Transparently mints a fresh upstream session (new exit IP) if this is
     // STICKY and the current one has outlived sessionDurationMins — the
-    // credential itself has no expiry tied to that window.
+    // credential itself has no expiry tied to that window. Passes the
+    // already-fetched credential through so this doesn't re-query the same
+    // row — see fetchCredentialWithSession's caller-preload comment.
     const session = await resolveActiveUpstreamSession(
       credential.id,
       parsed.data.forceRotate,
       parsed.data.targetHost,
+      credential,
     );
     if (!session.upstreamSessionRef) {
       return NextResponse.json({ error: "No active session for this credential" }, { status: 404 });
@@ -65,10 +78,14 @@ export async function POST(request: Request) {
     const adapter = getProviderAdapter(session.provider.slug);
     const upstream = await adapter.getUpstreamConnection(session.upstreamSessionRef);
 
-    await prisma.customerProxyCredential.update({
-      where: { id: credential.id },
-      data: { lastUsedAt: new Date() },
-    });
+    // Fire-and-forget: nothing in this response depends on lastUsedAt
+    // actually being written before we reply, and this was previously
+    // blocking the response on every single resolve call. Errors are
+    // logged, not thrown — a failed timestamp update should never fail an
+    // otherwise-successful proxy resolution.
+    prisma.customerProxyCredential
+      .update({ where: { id: credential.id }, data: { lastUsedAt: new Date() } })
+      .catch((err) => console.error("Failed to update lastUsedAt:", err));
 
     // Per-destination connection timeout override, if the matched SiteRule
     // (if any) sets one — gateway-agent has no DB access, so this is the

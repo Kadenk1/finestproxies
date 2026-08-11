@@ -357,13 +357,31 @@ export function revealCredentialPassword(passwordEnc: string): string {
  * have rotation-time checking turned off, without affecting every other
  * target on the same gateway.
  */
+type CredentialWithSession = Awaited<ReturnType<typeof fetchCredentialWithSession>>;
+
+function fetchCredentialWithSession(credentialId: string) {
+  return prisma.customerProxyCredential.findUniqueOrThrow({
+    where: { id: credentialId },
+    include: {
+      product: true,
+      sessions: { orderBy: { startedAt: "desc" }, take: 1, include: { provider: true } },
+    },
+  });
+}
+
 export async function resolveActiveUpstreamSession(
   credentialId: string,
   forceRotate = false,
   targetHost?: string,
+  // Callers that already fetched the credential row in the same shape this
+  // needs (see /api/gateway-control/resolve, which used to fetch it once
+  // for auth and then have this function fetch it again from scratch) can
+  // pass it here to skip the second DB round trip entirely. Optional so
+  // every other caller keeps working unchanged.
+  preloaded?: CredentialWithSession,
 ) {
   return withLock(`resolve-upstream:${credentialId}`, () =>
-    resolveActiveUpstreamSessionLocked(credentialId, forceRotate, targetHost),
+    resolveActiveUpstreamSessionLocked(credentialId, forceRotate, targetHost, preloaded),
   );
 }
 
@@ -371,23 +389,26 @@ async function resolveActiveUpstreamSessionLocked(
   credentialId: string,
   forceRotate = false,
   targetHost?: string,
+  preloaded?: CredentialWithSession,
 ) {
-  const credential = await prisma.customerProxyCredential.findUniqueOrThrow({
-    where: { id: credentialId },
-    include: {
-      product: true,
-      sessions: { orderBy: { startedAt: "desc" }, take: 1, include: { provider: true } },
-    },
-  });
+  // A caller-supplied credential is only safe to reuse as-is when we're not
+  // rotating — forceRotate/expiry decisions need the CURRENT session state,
+  // and preloaded was fetched before the lock was acquired, so another
+  // request could have already rotated it in the meantime. Skip the query
+  // on the common fast path (no rotation needed); if it turns out we ARE
+  // rotating, re-fetch fresh under the lock before that decision is made
+  // for real (see the reassignment further down) — a preloaded value never
+  // drives an actual rotation decision, only ever the initial reuse check.
+  let credential = preloaded ?? (await fetchCredentialWithSession(credentialId));
 
-  const currentSession = credential.sessions[0];
+  let currentSession = credential.sessions[0];
   if (!currentSession) {
     throw new Error("Credential has no session.");
   }
 
-  const sessionAgeMs = Date.now() - currentSession.startedAt.getTime();
-  const stickyWindowMs = (credential.sessionDurationMins ?? 0) * 60_000;
-  const sessionExpired =
+  let sessionAgeMs = Date.now() - currentSession.startedAt.getTime();
+  let stickyWindowMs = (credential.sessionDurationMins ?? 0) * 60_000;
+  let sessionExpired =
     credential.sessionType === "STICKY" && stickyWindowMs > 0 && sessionAgeMs > stickyWindowMs;
 
   if (!sessionExpired && !forceRotate) {
@@ -395,6 +416,21 @@ async function resolveActiveUpstreamSessionLocked(
       `[gateway] reuse session=${currentSession.id} credential=${credential.username} provider=${currentSession.provider.slug} ageMs=${sessionAgeMs}`,
     );
     return currentSession;
+  }
+
+  if (preloaded) {
+    credential = await fetchCredentialWithSession(credentialId);
+    currentSession = credential.sessions[0];
+    sessionAgeMs = Date.now() - currentSession.startedAt.getTime();
+    stickyWindowMs = (credential.sessionDurationMins ?? 0) * 60_000;
+    sessionExpired =
+      credential.sessionType === "STICKY" && stickyWindowMs > 0 && sessionAgeMs > stickyWindowMs;
+    if (!sessionExpired && !forceRotate) {
+      console.log(
+        `[gateway] reuse session=${currentSession.id} credential=${credential.username} provider=${currentSession.provider.slug} ageMs=${sessionAgeMs} (re-checked after stale preload)`,
+      );
+      return currentSession;
+    }
   }
 
   const rotateReason = forceRotate ? "forceRotate (retry after failure)" : "sticky window expired";
