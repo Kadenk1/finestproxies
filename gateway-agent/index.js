@@ -18,15 +18,21 @@ const AGENT_SECRET = process.env.GATEWAY_AGENT_SECRET;
 const GATEWAY_HOSTNAME = process.env.GATEWAY_HOSTNAME || "proxy.finestproxies.com";
 const PORT = Number(process.env.PORT || 8000);
 // Overridable without a redeploy — see the pre-warming pool section below.
-// NOTE: raising this to 60 made IPRoyal latency WORSE in production
-// (717ms/3.9s avg/max -> 1227ms/8.9s), not better — pool_status logs
-// showed the pool repeatedly dropping to 0 between ticks with near-zero
-// cold-fallbacks, meaning IPRoyal was closing idle pooled sockets faster
-// than they could be reused, so the pool was churning (constantly
-// reopening ~60 sockets at once) rather than staying usefully warm. Rolled
-// back to a modest default pending a proper investigation into IPRoyal's
-// actual idle-connection tolerance before raising this again.
-const UPSTREAM_POOL_SIZE = Number(process.env.UPSTREAM_POOL_SIZE || 8);
+// CONFIRMED (Aug 2026) via isolated A/B test that pre-warming actively
+// HURTS IPRoyal: with pooling on, real customer-credential requests
+// through this gateway averaged ~2.3s (20-request sample, 1.9-3.9s range)
+// vs. raw IPRoyal (no gateway) at ~0.85-0.93s — the tunnel/CONNECT itself
+// opened fast either way (~750-900ms, see connect_established durationMs),
+// but data through a pooled-then-reused socket took an extra ~1.4s versus
+// a socket dialed fresh at the moment of use. Retested with
+// UPSTREAM_POOL_SIZE=1 (pooling effectively disabled): 8/8 requests
+// landed at 0.76-0.84s, matching or beating raw IPRoyal, consistently.
+// IPRoyal appears to penalize (or just serve slowly through) a TCP
+// connection that's sat idle/pre-opened rather than one just dialed —
+// pre-warming optimizes for the wrong thing against this upstream. Default
+// is now 1 (effectively no pooling) until this is retested per-upstream
+// (Bright Data's behavior here is untested, not assumed identical).
+const UPSTREAM_POOL_SIZE = Number(process.env.UPSTREAM_POOL_SIZE || 1);
 // Overridable per-destination via a SiteRule's connectionTimeoutMs (see
 // gateway-tuning.ts) — /resolve returns null when no rule sets one, in
 // which case every call site here falls back to this same default that
@@ -129,12 +135,17 @@ function logEvent(event, fields) {
 // pools/reuses sockets per host:port internally, so this alone gets
 // connection reuse for that path without any custom pooling logic (the
 // CONNECT/HTTPS path can't use an http.Agent since it's raw TCP, hence the
-// hand-rolled pool below). maxSockets shares the same UPSTREAM_POOL_SIZE
-// reasoning as that pool: below real peak concurrent traffic to one
-// upstream host:port, requests past the cap queue behind it instead of
-// failing — which reads as "slow," not as an error, making it an easy
-// bottleneck to miss.
-const httpUpstreamAgent = new http.Agent({ keepAlive: true, maxSockets: UPSTREAM_POOL_SIZE });
+// hand-rolled pool below). Deliberately a SEPARATE constant from
+// UPSTREAM_POOL_SIZE, not tied to it — Node's http.Agent keep-alive reuse
+// is a different mechanism (a socket is reused across many sequential
+// requests as they complete, not handed out once like the CONNECT pool),
+// and there's no evidence yet that it has the same "idle connection is
+// slow" problem confirmed for the CONNECT-path pool against IPRoyal.
+// Below real peak concurrent traffic to one upstream host:port, requests
+// past this cap queue behind it instead of failing — which reads as
+// "slow," not as an error, making it an easy bottleneck to miss.
+const HTTP_AGENT_MAX_SOCKETS = Number(process.env.HTTP_AGENT_MAX_SOCKETS || 60);
+const httpUpstreamAgent = new http.Agent({ keepAlive: true, maxSockets: HTTP_AGENT_MAX_SOCKETS });
 
 // ---- Control API -----------------------------------------------------
 
@@ -205,29 +216,30 @@ function sendHeartbeat() {
 }
 setInterval(sendHeartbeat, 60_000).unref();
 
-// ---- Upstream connection pre-warming ------------------------------------
+// ---- Upstream connection pre-warming (see UPSTREAM_POOL_SIZE's comment
+// above for the IPRoyal A/B test result — pooling was found to actively
+// HURT that upstream, which is why the default is now 1) --------------
 //
-// Opening a fresh TCP connection to the upstream on every single client
-// CONNECT costs a full handshake round-trip before we can even send the
-// CONNECT line. Keeping a pool of already-open, idle sockets per upstream
-// host:port lets most requests skip that RTT — pull an already-connected
-// socket, issue CONNECT immediately. Each pooled socket is used for exactly
-// one client's tunnel and then discarded (never returned to the pool) —
-// this only avoids handshake latency, it never shares a socket's data
-// between two different client sessions.
+// In theory: opening a fresh TCP connection to the upstream on every
+// single client CONNECT costs a full handshake round-trip before the
+// CONNECT line can even be sent, so keeping a pool of already-open, idle
+// sockets per upstream host:port should let most requests skip that RTT.
+// Each pooled socket is used for exactly one client's tunnel and then
+// discarded (never returned to the pool) — this was only ever meant to
+// avoid handshake latency, never to share a socket's data between two
+// different client sessions.
 //
-// UPSTREAM_POOL_SIZE must comfortably exceed real PEAK CONCURRENT traffic
-// to a given upstream host:port, not just be "a few spares" — every
-// customer credential resolving to the same provider shares one pool
-// keyed by that provider's host:port (e.g. all IPRoyal traffic pools
-// against geo.iproyal.com:11240 regardless of which customer/country), so
-// once more CONNECTs are in flight than the pool holds, the excess falls
-// through to a cold net.connect() and pays the full handshake latency —
-// this was silently happening on nearly every request with the old
-// default of 4 against real dozens-to-100+ concurrent load, which is
-// exactly what was behind IPRoyal traffic measuring ~717ms average /
-// 3.9s max CONNECT latency (see ConnectionEvent data) instead of the
-// sub-300ms a warm pool should give.
+// In practice, at least for IPRoyal: a connection that sat pre-opened in
+// the pool before being used measured consistently slower end-to-end than
+// one dialed fresh at the moment of use, even though the CONNECT handshake
+// itself was fast either way — something about IPRoyal's own handling of
+// an idle-then-reused vs. freshly-dialed connection. So raising
+// UPSTREAM_POOL_SIZE is NOT a safe default fix for "slow" against this
+// upstream — it was tried (60) and made things markedly worse. Only
+// increase this for a specific upstream after A/B testing that one
+// upstream the same way (real customer credential, pooled vs.
+// UPSTREAM_POOL_SIZE=1, same target, back-to-back timed samples) — do not
+// assume the theory above holds without that evidence in hand.
 const POOL_SIZE = UPSTREAM_POOL_SIZE;
 const connectionPools = new Map(); // "host:port" -> Set<net.Socket>, idle + (maybe still connecting)
 
