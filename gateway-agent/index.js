@@ -41,11 +41,16 @@ const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
 // How long to wait after a CONNECT tunnel is established, with zero bytes
 // flowing in either direction, before treating the exit IP as dead and
 // closing the tunnel cleanly (see the dead-tunnel watchdog in
-// handleConnect). Generous relative to a real TLS handshake (normally well
-// under 1s) so this only fires on genuinely stuck connections, not slow
-// ones — the goal is catching "nothing will ever happen here," not shaving
-// latency off working-but-slow connections.
-const DEAD_TUNNEL_GRACE_MS = Number(process.env.DEAD_TUNNEL_GRACE_MS || 4_000);
+// handleConnect). Tuned against real production data (Aug 2026): every
+// SUCCESSFUL connection observed had real data flowing within ~350-950ms;
+// genuinely dead ones sat silent for 7-9+ seconds until curl's own -m 20
+// timeout. 1500ms comfortably covers legitimate slow-but-working
+// connections (>1.5x the slowest good sample seen) while cutting the dead
+// case's customer-visible wait down from 7-9s+ to ~1.5s before their own
+// client can retry — this can only shorten the wait before a client-side
+// reconnect, not eliminate it; see the full limitation note at the
+// watchdog's call site.
+const DEAD_TUNNEL_GRACE_MS = Number(process.env.DEAD_TUNNEL_GRACE_MS || 1_500);
 
 if (!AGENT_SECRET) {
   console.error("GATEWAY_AGENT_SECRET is not set — refusing to start.");
@@ -486,32 +491,36 @@ function handleConnect(req, clientSocket, head) {
               clientSocket.write(remainder);
             }
 
-            // Post-handshake dead-tunnel watchdog: the CONNECT tunnel itself
-            // succeeded, but that only proves the upstream reached the
-            // TARGET's TCP port — it says nothing about whether the exit IP
-            // can actually complete a real TLS handshake / serve real
-            // traffic through it. A bad exit IP commonly shows up here as
-            // silence: the client sends its TLS ClientHello (or plain HTTP
-            // request) immediately after "200 Connection Established," and
-            // if the exit IP is dead, nothing ever comes back — no upstream
-            // 'error' or 'close' event fires either, since the TCP-level
-            // tunnel is still technically open. Confirmed in production
-            // (Aug 2026): curl reported exit 35 (SSL connect error) on
-            // exactly this pattern, invisible to the retry logic above
-            // because that logic only ever covers failures BEFORE
-            // handshakeDone.
+            // Post-handshake dead-tunnel watchdog: the CONNECT tunnel
+            // itself succeeded, but that only proves the upstream reached
+            // the TARGET's TCP port — it says nothing about whether the
+            // exit IP can actually complete a real TLS handshake / serve
+            // real traffic through it. Confirmed in production (Aug 2026):
+            // curl reported exit 35 (SSL connect error) on exactly this
+            // pattern — silence after a successful CONNECT — invisible to
+            // the retry logic above, which only ever covers failures
+            // BEFORE handshakeDone.
             //
-            // This does NOT replay the client's request — replaying
-            // anything after a tunnel is established is deliberately out of
-            // scope (the gateway only relays opaque bytes past this point,
-            // it has no framing to safely retry). Instead, if zero bytes
-            // have flowed in either direction after DEAD_TUNNEL_GRACE_MS,
-            // both sockets are closed cleanly. A well-behaved HTTP client
-            // (curl, browsers, most HTTP libraries) treats a cleanly closed
-            // connection as retry-safe and opens a fresh one automatically
-            // — which lands on a NEW CONNECT to this gateway, going through
-            // the existing exit-IP-rotation logic naturally, same as any
-            // other fresh connection.
+            // KNOWN LIMITATION, stated plainly: this cannot retry
+            // invisibly. Once the client is told "200 Connected" it
+            // immediately sends its TLS ClientHello (or first HTTP bytes)
+            // into the pipe — if THIS specific upstream is dead, those
+            // bytes are already lost into it, and there is no way to
+            // replay them without the client itself reconnecting. Properly
+            // invisible retry would require this gateway to terminate TLS
+            // itself (decrypt, inspect, re-encrypt to a fresh upstream),
+            // which is a materially bigger architectural change and a
+            // trust boundary this codebase does not cross today — CONNECT
+            // tunnels are relayed as opaque bytes by design. What this
+            // watchdog actually does: detect the dead case FAST (bounded
+            // by DEAD_TUNNEL_GRACE_MS, tuned tight against real observed
+            // working-connection timing — every successful connection
+            // tonight had real data flowing well under 1s) and close
+            // cleanly, so a well-behaved client's own retry (curl, browsers,
+            // and most HTTP libraries all reconnect automatically on a
+            // cleanly reset connection) happens as fast as possible rather
+            // than the client hanging for its own full timeout (which can
+            // be 10s+) against a connection that was never going anywhere.
             let sawTraffic = false;
             const deadTunnelTimer = setTimeout(() => {
               if (sawTraffic) return;
