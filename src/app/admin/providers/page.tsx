@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ProviderFormDialog } from "@/components/admin/provider-form-dialog";
+import { DeleteProviderButton } from "@/components/admin/delete-provider-button";
 
 const statusVariant: Record<string, "default" | "secondary" | "destructive"> = {
   HEALTHY: "default",
@@ -83,19 +84,22 @@ export default async function AdminProvidersPage() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  <ProviderFormDialog
-                    provider={{
-                      id: provider.id,
-                      name: provider.name,
-                      slug: provider.slug,
-                      enabled: provider.enabled,
-                      priority: provider.priority,
-                      weight: provider.weight,
-                      apiBaseUrl: provider.apiBaseUrl ?? "",
-                      notes: provider.notes ?? "",
-                      hasCredential: provider.credentials.length > 0,
-                    }}
-                  />
+                  <div className="flex items-center justify-end gap-1">
+                    <ProviderFormDialog
+                      provider={{
+                        id: provider.id,
+                        name: provider.name,
+                        slug: provider.slug,
+                        enabled: provider.enabled,
+                        priority: provider.priority,
+                        weight: provider.weight,
+                        apiBaseUrl: provider.apiBaseUrl ?? "",
+                        notes: provider.notes ?? "",
+                        hasCredential: provider.credentials.length > 0,
+                      }}
+                    />
+                    <DeleteProviderButton providerId={provider.id} providerName={provider.name} />
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
