@@ -33,6 +33,12 @@ services:
     image: postgres:16-alpine
     container_name: finestproxies-postgres
     restart: unless-stopped
+    # Overrides the image's stock defaults (shared_buffers=128MB,
+    # max_connections=100, work_mem=4MB — sized for a tiny box, not this
+    # VPS's real 2 vCPU/7.8GB) with postgres.conf, tuned for actual
+    # hardware. `postgres -c config_file=...` is the standard way to point
+    # the official image at a custom config without rebuilding it.
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     env_file:
       - .env.production
     environment:
@@ -52,6 +58,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.production}
     volumes:
       - finestproxies_postgres_data:/var/lib/postgresql/data
+      - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
     healthcheck:
       # Interpolated into a literal shell command, not delivered as a
       # container env var — env_file: can't reach this. ${POSTGRES_PASSWORD:?...}
