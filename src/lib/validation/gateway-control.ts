@@ -40,10 +40,14 @@ export const resolveCredentialSchema = z.object({
 
 export type ResolveCredentialInput = z.infer<typeof resolveCredentialSchema>;
 
-// gateway-agent's own classifyError() classes, plus TLS — see
-// connection-health.ts's ConnectionEvent doc comment for how these feed
-// per-destination-per-pool scoring.
-const errorClassEnum = z.enum(["TIMEOUT", "DNS", "TCP", "TLS", "UPSTREAM_REJECTED", "OTHER"]);
+// gateway-agent's own classifyError() classes, plus TLS and DEAD_TUNNEL —
+// see connection-health.ts's ConnectionEvent doc comment for how these
+// feed per-destination-per-pool scoring. DEAD_TUNNEL is distinct from the
+// others: it's not a connection-establishment failure (the CONNECT tunnel
+// itself succeeded) but a post-handshake watchdog firing because zero
+// bytes ever flowed through an established tunnel — see the dead-tunnel
+// watchdog in gateway-agent/index.js's handleConnect.
+const errorClassEnum = z.enum(["TIMEOUT", "DNS", "TCP", "TLS", "UPSTREAM_REJECTED", "DEAD_TUNNEL", "OTHER"]);
 
 const connectionStatEventSchema = z.object({
   targetHost: z.string().trim().min(1).max(255),

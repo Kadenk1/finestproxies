@@ -38,6 +38,14 @@ const UPSTREAM_POOL_SIZE = Number(process.env.UPSTREAM_POOL_SIZE || 1);
 // which case every call site here falls back to this same default that
 // was previously just hardcoded inline.
 const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
+// How long to wait after a CONNECT tunnel is established, with zero bytes
+// flowing in either direction, before treating the exit IP as dead and
+// closing the tunnel cleanly (see the dead-tunnel watchdog in
+// handleConnect). Generous relative to a real TLS handshake (normally well
+// under 1s) so this only fires on genuinely stuck connections, not slow
+// ones — the goal is catching "nothing will ever happen here," not shaving
+// latency off working-but-slow connections.
+const DEAD_TUNNEL_GRACE_MS = Number(process.env.DEAD_TUNNEL_GRACE_MS || 4_000);
 
 if (!AGENT_SECRET) {
   console.error("GATEWAY_AGENT_SECRET is not set — refusing to start.");
@@ -477,8 +485,66 @@ function handleConnect(req, clientSocket, head) {
               bytesDown += remainder.length;
               clientSocket.write(remainder);
             }
-            clientSocket.on("data", (d) => (bytesUp += d.length));
-            upstreamSocket.on("data", (d) => (bytesDown += d.length));
+
+            // Post-handshake dead-tunnel watchdog: the CONNECT tunnel itself
+            // succeeded, but that only proves the upstream reached the
+            // TARGET's TCP port — it says nothing about whether the exit IP
+            // can actually complete a real TLS handshake / serve real
+            // traffic through it. A bad exit IP commonly shows up here as
+            // silence: the client sends its TLS ClientHello (or plain HTTP
+            // request) immediately after "200 Connection Established," and
+            // if the exit IP is dead, nothing ever comes back — no upstream
+            // 'error' or 'close' event fires either, since the TCP-level
+            // tunnel is still technically open. Confirmed in production
+            // (Aug 2026): curl reported exit 35 (SSL connect error) on
+            // exactly this pattern, invisible to the retry logic above
+            // because that logic only ever covers failures BEFORE
+            // handshakeDone.
+            //
+            // This does NOT replay the client's request — replaying
+            // anything after a tunnel is established is deliberately out of
+            // scope (the gateway only relays opaque bytes past this point,
+            // it has no framing to safely retry). Instead, if zero bytes
+            // have flowed in either direction after DEAD_TUNNEL_GRACE_MS,
+            // both sockets are closed cleanly. A well-behaved HTTP client
+            // (curl, browsers, most HTTP libraries) treats a cleanly closed
+            // connection as retry-safe and opens a fresh one automatically
+            // — which lands on a NEW CONNECT to this gateway, going through
+            // the existing exit-IP-rotation logic naturally, same as any
+            // other fresh connection.
+            let sawTraffic = false;
+            const deadTunnelTimer = setTimeout(() => {
+              if (sawTraffic) return;
+              logEvent("dead_tunnel_detected", {
+                username: auth.username,
+                sessionId,
+                destination: `${targetHost}:${targetPort}`,
+                upstream: `${upstream.host}:${upstream.port}`,
+                graceMs: DEAD_TUNNEL_GRACE_MS,
+              });
+              recordConnectionStat({
+                targetHost,
+                providerSlug,
+                success: false,
+                errorClass: "DEAD_TUNNEL",
+                connectLatencyMs: Date.now() - startedAtMs,
+                sessionId,
+              });
+              pendingConnectionStat = null; // superseded by the DEAD_TUNNEL stat just recorded — don't also report it as a success in finish()
+              clientSocket.destroy();
+              upstreamSocket.destroy();
+            }, DEAD_TUNNEL_GRACE_MS);
+
+            clientSocket.on("data", (d) => {
+              sawTraffic = true;
+              clearTimeout(deadTunnelTimer);
+              bytesUp += d.length;
+            });
+            upstreamSocket.on("data", (d) => {
+              sawTraffic = true;
+              clearTimeout(deadTunnelTimer);
+              bytesDown += d.length;
+            });
             clientSocket.pipe(upstreamSocket);
             upstreamSocket.pipe(clientSocket);
           });
