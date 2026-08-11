@@ -17,6 +17,10 @@ const CONTROL_API_BASE = process.env.CONTROL_API_BASE || "http://app:3000";
 const AGENT_SECRET = process.env.GATEWAY_AGENT_SECRET;
 const GATEWAY_HOSTNAME = process.env.GATEWAY_HOSTNAME || "proxy.finestproxies.com";
 const PORT = Number(process.env.PORT || 8000);
+// Overridable without a redeploy — see the pre-warming pool section below
+// for why this needs to track real concurrent traffic, not stay a small
+// fixed constant.
+const UPSTREAM_POOL_SIZE = Number(process.env.UPSTREAM_POOL_SIZE || 60);
 // Overridable per-destination via a SiteRule's connectionTimeoutMs (see
 // gateway-tuning.ts) — /resolve returns null when no rule sets one, in
 // which case every call site here falls back to this same default that
@@ -119,8 +123,12 @@ function logEvent(event, fields) {
 // pools/reuses sockets per host:port internally, so this alone gets
 // connection reuse for that path without any custom pooling logic (the
 // CONNECT/HTTPS path can't use an http.Agent since it's raw TCP, hence the
-// hand-rolled pool below).
-const httpUpstreamAgent = new http.Agent({ keepAlive: true, maxSockets: 32 });
+// hand-rolled pool below). maxSockets shares the same UPSTREAM_POOL_SIZE
+// reasoning as that pool: below real peak concurrent traffic to one
+// upstream host:port, requests past the cap queue behind it instead of
+// failing — which reads as "slow," not as an error, making it an easy
+// bottleneck to miss.
+const httpUpstreamAgent = new http.Agent({ keepAlive: true, maxSockets: UPSTREAM_POOL_SIZE });
 
 // ---- Control API -----------------------------------------------------
 
@@ -195,14 +203,26 @@ setInterval(sendHeartbeat, 60_000).unref();
 //
 // Opening a fresh TCP connection to the upstream on every single client
 // CONNECT costs a full handshake round-trip before we can even send the
-// CONNECT line. Keeping a small pool of already-open, idle sockets per
-// upstream host:port lets most requests skip that RTT — pull an
-// already-connected socket, issue CONNECT immediately. Each pooled socket
-// is used for exactly one client's tunnel and then discarded (never
-// returned to the pool) — this only avoids handshake latency, it never
-// shares a socket's data between two different client sessions.
-
-const POOL_SIZE = 4;
+// CONNECT line. Keeping a pool of already-open, idle sockets per upstream
+// host:port lets most requests skip that RTT — pull an already-connected
+// socket, issue CONNECT immediately. Each pooled socket is used for exactly
+// one client's tunnel and then discarded (never returned to the pool) —
+// this only avoids handshake latency, it never shares a socket's data
+// between two different client sessions.
+//
+// UPSTREAM_POOL_SIZE must comfortably exceed real PEAK CONCURRENT traffic
+// to a given upstream host:port, not just be "a few spares" — every
+// customer credential resolving to the same provider shares one pool
+// keyed by that provider's host:port (e.g. all IPRoyal traffic pools
+// against geo.iproyal.com:11240 regardless of which customer/country), so
+// once more CONNECTs are in flight than the pool holds, the excess falls
+// through to a cold net.connect() and pays the full handshake latency —
+// this was silently happening on nearly every request with the old
+// default of 4 against real dozens-to-100+ concurrent load, which is
+// exactly what was behind IPRoyal traffic measuring ~717ms average /
+// 3.9s max CONNECT latency (see ConnectionEvent data) instead of the
+// sub-300ms a warm pool should give.
+const POOL_SIZE = UPSTREAM_POOL_SIZE;
 const connectionPools = new Map(); // "host:port" -> Set<net.Socket>, idle + (maybe still connecting)
 
 function poolKey(host, port) {
@@ -224,6 +244,12 @@ function replenishPool(host, port) {
   }
 }
 
+// Counts, since the last pool-status log, how many takeFromPool() calls
+// found the pool empty and fell through to a cold (unwarmed) connection —
+// the direct signal that POOL_SIZE is too small for real traffic, as
+// opposed to inferring it after the fact from ConnectionEvent latency.
+const coldFallbacksByKey = new Map(); // "host:port" -> count
+
 /** Pulls an idle (connected or still-connecting) socket from the pool, refilling behind it. */
 function takeFromPool(host, port) {
   const key = poolKey(host, port);
@@ -234,10 +260,25 @@ function takeFromPool(host, port) {
     pool.delete(sock);
     sock.removeAllListeners("error");
     sock.removeAllListeners("close");
+  } else {
+    coldFallbacksByKey.set(key, (coldFallbacksByKey.get(key) || 0) + 1);
   }
   replenishPool(host, port);
   return sock || net.connect(port, host);
 }
+
+function logPoolStatus() {
+  for (const [key, pool] of connectionPools) {
+    logEvent("pool_status", {
+      upstream: key,
+      poolSize: pool.size,
+      targetSize: POOL_SIZE,
+      coldFallbacks: coldFallbacksByKey.get(key) || 0,
+    });
+  }
+  coldFallbacksByKey.clear();
+}
+setInterval(logPoolStatus, 60_000).unref();
 
 /** A net.Socket only fires 'connect' once — a pooled socket may have already connected before this listener is attached. */
 function onceConnected(sock, cb) {
